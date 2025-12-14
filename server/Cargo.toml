@@ -1,0 +1,13 @@
+[package]
+name = "automation-mitigation-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies.pow]
+path = "../pow"
+package = "automation-mitigation-pow"
+default-features = false
+features = ["generate"]
