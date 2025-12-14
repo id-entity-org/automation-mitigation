@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_and_verify_proof_split() {
+    fn test_generate_in_parallel_and_verify_proof() {
         type TestChallenge = Challenge<
             4,
             DEFAULT_STEP_COUNT,
@@ -122,41 +122,60 @@ mod tests {
             DEFAULT_HASH_LENGTH,
         >;
         let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_le_bytes();
-        let proof = thread::scope(move |scope| {
-            let nonces = TestChallenge::split_nonce(&nonce);
-            let joins = nonces
-                .iter()
-                .enumerate()
-                .map(|(i, &it)| scope.spawn(move || TestChallenge::generate_chain(i, &it)))
-                .collect::<Vec<_>>();
-            let chains = joins
-                .into_iter()
-                .map(|it| it.join().unwrap())
-                .collect::<Vec<_>>();
-            TestChallenge::combine_chains(&chains.try_into().unwrap())
-        });
+        let proof = TestChallenge::generate_proof_in_parallel(&nonce);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
 
     #[test]
-    fn test_generate_and_verify_proof_non_default() {
+    fn test_generate_in_parallel_and_verify_proof_non_default() {
         type TestChallenge = Challenge<4, 5, 262_144, 1024, 6, 32>;
         let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_le_bytes();
-        let proof = thread::scope(move |scope| {
-            let nonces = TestChallenge::split_nonce(&nonce);
-            let joins = nonces
-                .iter()
-                .enumerate()
-                .map(|(i, &it)| scope.spawn(move || TestChallenge::generate_chain(i, &it)))
-                .collect::<Vec<_>>();
-            let chains = joins
-                .into_iter()
-                .map(|it| it.join().unwrap())
-                .collect::<Vec<_>>();
-            TestChallenge::combine_chains(&chains.try_into().unwrap())
-        });
+        let proof = TestChallenge::generate_proof_in_parallel(&nonce);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
+    }
+
+    impl<
+        const CHAIN_COUNT: usize,
+        const STEP_COUNT: usize,
+        const CHAIN_BLOCK_COUNT: usize,
+        const BLOCK_SIZE: usize,
+        const ITERATION_COUNT: usize,
+        const HASH_LENGTH: usize,
+    >
+        Challenge<
+            CHAIN_COUNT,
+            STEP_COUNT,
+            CHAIN_BLOCK_COUNT,
+            BLOCK_SIZE,
+            ITERATION_COUNT,
+            HASH_LENGTH,
+        >
+    where
+        Challenge<
+            CHAIN_COUNT,
+            STEP_COUNT,
+            CHAIN_BLOCK_COUNT,
+            BLOCK_SIZE,
+            ITERATION_COUNT,
+            HASH_LENGTH,
+        >: ValidChainCount<CHAIN_COUNT>,
+    {
+        fn generate_proof_in_parallel(nonce: &Nonce) -> Box<[u8]> {
+            thread::scope(move |scope| {
+                let nonces = Self::split_nonce(&nonce);
+                let joins = nonces
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &it)| scope.spawn(move || Self::generate_chain(i, &it)))
+                    .collect::<Vec<_>>();
+                let chains = joins
+                    .into_iter()
+                    .map(|it| it.join().unwrap())
+                    .collect::<Vec<_>>();
+                Self::combine_chains(&chains.try_into().unwrap())
+            })
+        }
     }
 }
