@@ -6,10 +6,6 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[dependencies.core]
-path = "../core"
-package = "automation-mitigation-core"
-
 [dependencies.blake2]
 workspace = true
 

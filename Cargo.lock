@@ -3,18 +3,9 @@
 version = 4
 
 [[package]]
-name = "automation-mitigation-core"
-version = "0.1.0"
-dependencies = [
- "blake2",
- "rs_merkle",
-]
-
-[[package]]
 name = "automation-mitigation-pow"
 version = "0.1.0"
 dependencies = [
- "automation-mitigation-core",
  "blake2",
  "hkdf",
  "rs_merkle",

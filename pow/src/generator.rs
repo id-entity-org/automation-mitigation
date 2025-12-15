@@ -1,8 +1,9 @@
 use crate::chains::ValidChainCount;
+use crate::hasher::Blake2bHasher;
 use crate::Challenge;
+use crate::{challenge_index, reference_block_index, Block, Nonce};
 use blake2::digest::FixedOutput;
 use blake2::{Blake2b512, Digest};
-use core::{challenge_index, reference_block_index, Blake2bHasher, Block, Nonce};
 use hkdf::SimpleHkdf;
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
