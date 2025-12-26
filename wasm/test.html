@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Test</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{height:100%;font:3vmin monospace;background:#222;color:#eee}
+body{min-height:100%;padding:1rem;display:grid;place-items:center}
+main{display:flex;flex-direction:column}
+a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+  <a>Generating proof of work...</a>
+</main>
+</body>
+<script type="module">
+import {generateChain,generateChainPrealloc} from './lib.mjs';
+const link=document.querySelector('main>a');
+// const nonce=new Uint8Array(16);
+// crypto.getRandomValues(nonce);
+const nonce=new Uint8Array(
+  await crypto.subtle.digest('SHA-256', new TextEncoder().encode('blah'))
+).subarray(0,16);
+console.log(`nonce: ${nonce.toHex()}`);
+link.setAttribute('download',`${[...nonce].map(it=>it.toString(16).padStart(2,'0')).join('')}`);
+const t0=Date.now();
+const chain1=await generateChain(0,nonce);
+const t1=Date.now();
+console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',chain1))).toHex()}`);
+console.log(`${t1-t0}ms`);
+const t3=Date.now();
+const chain2=await generateChainPrealloc(0,nonce);
+const t4=Date.now();
+console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',chain2))).toHex()}`);
+console.log(`${t4-t3}ms`);
+// const blob=new Blob([chain],{type: 'application/octet-stream'});
+// link.href=URL.createObjectURL(blob);
+// link.textContent=`Chain generated (${chain.length}b)`;
+</script>
+</html>

@@ -1,9 +1,6 @@
 use crate::chains::ValidChainCount;
-use crate::hasher::Blake2bHasher;
+use crate::hasher::MerkleHasher;
 use crate::{challenge_index, reference_block_index, Block, Challenge, Nonce};
-use blake2::digest::FixedOutput;
-use blake2::{Blake2b512, Digest};
-use hkdf::SimpleHkdf;
 use rs_merkle::{Hasher, MerkleProof};
 
 impl<
@@ -43,14 +40,14 @@ where
                 parent_block,
                 reference_block,
             );
-            if block_hash != Blake2bHasher::<HASH_LENGTH>::hash(&block) {
+            if block_hash != MerkleHasher::<HASH_LENGTH>::hash(&block) {
                 return None;
             }
-            let parent_block_hash = Blake2bHasher::<HASH_LENGTH>::hash(parent_block);
-            let reference_block_hash = Blake2bHasher::<HASH_LENGTH>::hash(reference_block);
+            let parent_block_hash = MerkleHasher::<HASH_LENGTH>::hash(parent_block);
+            let reference_block_hash = MerkleHasher::<HASH_LENGTH>::hash(reference_block);
             let len = parser.read_uint()?;
             let proof = parser.read_slice(len)?;
-            let proof = MerkleProof::<Blake2bHasher<HASH_LENGTH>>::from_bytes(proof).ok()?;
+            let proof = MerkleProof::<MerkleHasher<HASH_LENGTH>>::from_bytes(proof).ok()?;
             let mut indexed_leaves = [
                 (index - 1, parent_block_hash),
                 (index, block_hash),
@@ -78,17 +75,12 @@ where
         parent_block: &Block<BLOCK_SIZE>,
         reference_block: &Block<BLOCK_SIZE>,
     ) -> Block<BLOCK_SIZE> {
-        let mut hasher = Blake2b512::new_with_prefix(parent_block);
-        hasher.update(reference_block);
-        let mut hash = hasher.finalize_fixed();
+        let mut hash = [0u8; 64];
+        MerkleHasher::hash_with_custom_domain_into(parent_block, reference_block, &mut hash);
         for _ in 0..ITERATION_COUNT {
-            hash = Blake2b512::digest(hash);
+            MerkleHasher::hash_self(&mut hash);
         }
-        let mut allocated = [0u8; BLOCK_SIZE];
-        SimpleHkdf::<Blake2b512>::new(Some(nonce), &hash)
-            .expand(&[], &mut allocated)
-            .expect("failed to expand hash");
-        allocated
+        MerkleHasher::hash_with_custom_domain(nonce, &hash)
     }
 }
 

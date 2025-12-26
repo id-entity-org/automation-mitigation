@@ -1,9 +1,4 @@
-extern crate blake2;
-extern crate hkdf;
 extern crate rs_merkle;
-
-use blake2::digest::FixedOutput;
-use blake2::{Blake2b512, Digest};
 
 pub const DEFAULT_BLOCK_SIZE: usize = 256;
 pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 524_288;
@@ -55,6 +50,30 @@ impl<
 pub(crate) mod chains;
 pub(crate) mod hasher;
 
+#[cfg(any(test, feature = "debug"))]
+pub(crate) mod hex;
+
+pub trait DebugPrinter: Copy {
+    #[inline(always)]
+    fn debug_println(&self, message: &str) {
+        #[cfg(feature = "debug")]
+        println!("{message}")
+    }
+}
+#[cfg(feature = "debug")]
+#[derive(Copy, Clone)]
+pub struct StdDebugPrinter;
+
+#[cfg(feature = "debug")]
+impl DebugPrinter for StdDebugPrinter {}
+
+#[cfg(not(feature = "debug"))]
+#[derive(Copy, Clone)]
+pub struct NoDebugPrinter;
+
+#[cfg(not(feature = "debug"))]
+impl DebugPrinter for StdDebugPrinter {}
+
 #[cfg(feature = "generate")]
 mod generator;
 
@@ -63,24 +82,44 @@ mod generate {
     use super::*;
     pub use crate::chains::*;
 
-    pub fn generate_proof(nonce: &Nonce) -> Box<[u8]> {
-        let chains = DefaultGenerator::generate_chains(nonce);
-        DefaultGenerator::combine_chains(&chains)
+    pub fn generate_proof(nonce: &Nonce, printer: impl DebugPrinter) -> Box<[u8]> {
+        let chains = DefaultGenerator::generate_chains(nonce, printer);
+        let chains: [&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT] =
+            chains
+                .iter()
+                .map(|b| &**b)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+        DefaultGenerator::combine_chains(&chains, printer)
     }
 
     pub fn generate_chain(
         i: usize,
         nonce: &Nonce,
+        printer: impl DebugPrinter,
     ) -> Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]> {
         assert!(i < DEFAULT_CHAIN_COUNT);
         let split_nonce = DefaultGenerator::split_nonce(nonce)[i];
-        DefaultGenerator::generate_chain(i, &split_nonce)
+        DefaultGenerator::generate_chain(i, &split_nonce, printer)
+    }
+
+    pub fn generate_allocated_chain(
+        i: usize,
+        nonce: &Nonce,
+        blocks: &mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
+        printer: impl DebugPrinter,
+    ) {
+        assert!(i < DEFAULT_CHAIN_COUNT);
+        let split_nonce = DefaultGenerator::split_nonce(nonce)[i];
+        DefaultGenerator::generate_allocated_chain(i, &split_nonce, blocks, printer)
     }
 
     pub fn combine_chains(
-        chains: &[Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]>; 2],
+        chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
+        printer: impl DebugPrinter,
     ) -> Box<[u8]> {
-        DefaultGenerator::combine_chains(chains)
+        DefaultGenerator::combine_chains(chains, printer)
     }
 }
 
@@ -99,6 +138,7 @@ mod verify {
     }
 }
 
+use crate::hasher::MerkleHasher;
 #[cfg(feature = "verify")]
 pub use verify::*;
 
@@ -116,9 +156,10 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
     merkle_root: &[u8],
     i: usize,
 ) -> usize {
-    let mut hasher = Blake2b512::new_with_prefix(merkle_root);
-    hasher.update((i as u64).to_le_bytes());
-    let hash = hasher.finalize_fixed();
+    let hash: [u8; 16] = MerkleHasher::<16>::hash_with_custom_domain(
+        merkle_root,
+        (i as u64).to_le_bytes().as_slice(),
+    );
     let seed = u64::from_le_bytes(hash[..8].try_into().unwrap()) as u128;
     let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
     let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
@@ -148,12 +189,91 @@ pub(crate) fn reference_block_index<const CHAIN_BLOCK_COUNT: usize, const BLOCK_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hex::Hex;
+    use sha2::{Digest, Sha256};
     use std::thread;
+
+    #[derive(Copy, Clone)]
+    struct StdDebugPrinter;
+
+    impl DebugPrinter for StdDebugPrinter {}
+
+    #[test]
+    fn test_generate_chain_default() {
+        let nonce = 0x8b7df143d91c716ecfa5fc1730022f6b_u128.to_be_bytes();
+        let mut chain = vec![0u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT];
+        let ptr = chain.as_mut_ptr() as *mut [u8; DEFAULT_BLOCK_SIZE];
+        let ptr: &mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_CHAIN_BLOCK_COUNT] =
+            unsafe { std::slice::from_raw_parts_mut(ptr, DEFAULT_CHAIN_BLOCK_COUNT) }
+                .try_into()
+                .unwrap();
+        DefaultGenerator::generate_allocated_chain(0, &nonce, ptr, StdDebugPrinter);
+        let hash = Sha256::default()
+            .chain_update(chain.as_slice())
+            .finalize()
+            .to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "7a2dc34a90a6e1d198c1de74febddf3d526fc679e378451f9adfff675af78b95",
+            hash
+        );
+        DefaultGenerator::generate_allocated_chain(1, &nonce, ptr, StdDebugPrinter);
+        let hash = Sha256::default()
+            .chain_update(chain.as_slice())
+            .finalize()
+            .to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "7ee2ea4e4ca21b8433f33ba7fd912f24f52eecdac293dd31211a1e04522acd6c",
+            hash
+        );
+        let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter);
+        let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter);
+        let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter);
+        let chain = Box::into_raw(chain1) as *mut u8;
+        let chain = unsafe {
+            Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT])
+        };
+        let hash = Sha256::default()
+            .chain_update(chain.as_slice())
+            .finalize()
+            .to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "7a2dc34a90a6e1d198c1de74febddf3d526fc679e378451f9adfff675af78b95",
+            hash
+        );
+        let chain = Box::into_raw(chain2) as *mut u8;
+        let chain = unsafe {
+            Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT])
+        };
+        let hash = Sha256::default()
+            .chain_update(chain.as_slice())
+            .finalize()
+            .to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "7ee2ea4e4ca21b8433f33ba7fd912f24f52eecdac293dd31211a1e04522acd6c",
+            hash
+        );
+        let hash = Sha256::default().chain_update(proof).finalize().to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "263f1bba8dac6b36dcefa5d676d2a1c8445a894d8ef06a7743c54d15e7107e0e",
+            hash
+        );
+    }
 
     #[test]
     fn test_generate_and_verify_proof_default() {
-        let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_le_bytes();
-        let proof = generate_proof(&nonce);
+        let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
+        let proof = generate_proof(&nonce, StdDebugPrinter);
+        let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(
+            "06934a271944e1034f0b16e494bc4e6a65a9775c1000bc0b62c72a6d0300828d",
+            hash
+        );
         let verified = verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -168,7 +288,7 @@ mod tests {
             DEFAULT_ITERATION_COUNT,
             DEFAULT_HASH_LENGTH,
         >;
-        let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_le_bytes();
+        let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_be_bytes();
         let proof = TestChallenge::generate_proof_in_parallel(&nonce);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
@@ -177,7 +297,7 @@ mod tests {
     #[test]
     fn test_generate_in_parallel_and_verify_proof_non_default() {
         type TestChallenge = Challenge<4, 5, 262_144, 1024, 6, 32>;
-        let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_le_bytes();
+        let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_be_bytes();
         let proof = TestChallenge::generate_proof_in_parallel(&nonce);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
@@ -211,17 +331,20 @@ mod tests {
     {
         fn generate_proof_in_parallel(nonce: &Nonce) -> Box<[u8]> {
             thread::scope(move |scope| {
-                let nonces = Self::split_nonce(&nonce);
-                let joins = nonces
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &it)| scope.spawn(move || Self::generate_chain(i, &it)))
+                let joins = (0..CHAIN_COUNT)
+                    .map(|i| scope.spawn(move || Self::generate_chain(i, &nonce, StdDebugPrinter)))
                     .collect::<Vec<_>>();
                 let chains = joins
                     .into_iter()
                     .map(|it| it.join().unwrap())
                     .collect::<Vec<_>>();
-                Self::combine_chains(&chains.try_into().unwrap())
+                let chains: [&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT] = chains
+                    .iter()
+                    .map(|b| &**b)
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+                Self::combine_chains(&chains, StdDebugPrinter)
             })
         }
     }

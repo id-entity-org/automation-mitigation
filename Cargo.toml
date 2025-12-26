@@ -12,18 +12,26 @@ license = "MPL-2"
 authors = ["Jerome David <programingjd@gmail.com>"]
 repository = "https://github.com/id-entity-org/automation-mitigation"
 
-[workspace.dependencies.blake2]
-version = "0.10"
+[workspace.dependencies.keccak-const]
+git = "https://github.com/programingjd/keccak-const.git"
+rev = "ade65d1"
+#version = "0.2"
 default-features = false
 features = []
+
+[workspace.dependencies.tiny-keccak]
+version = "2.0"
+default-features = false
+features = ["cshake", "shake"]
+
+[workspace.dependencies.sha3]
+version = "0.10"
+default-features = true
 
 [workspace.dependencies.rs_merkle]
-version = "1.5"
-default-features = false
-features = []
-
-[workspace.dependencies.hkdf]
-version = "0.12"
+git = "https://github.com/programingjd/rs-merkle.git"
+rev = "fbe8c1f"
+#version = "1.5"
 default-features = false
 features = []
 

@@ -9,4 +9,14 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[dependencies.pow]
+path = "../pow"
+package = "automation-mitigation-pow"
+default-features = false
+features = ["generate", "const-hash", "debug"]
 
+[profile.release]
+lto = "fat"
+opt-level = "s"
+codegen-units = 1
+panic = "abort"

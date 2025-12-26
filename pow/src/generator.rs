@@ -1,13 +1,11 @@
 use crate::chains::ValidChainCount;
-use crate::hasher::Blake2bHasher;
-use crate::Challenge;
+use crate::hasher::MerkleHasher;
+#[cfg(feature = "debug")]
+use crate::hex::Hex;
 use crate::{challenge_index, reference_block_index, Block, Nonce};
-use blake2::digest::FixedOutput;
-use blake2::{Blake2b512, Digest};
-use hkdf::SimpleHkdf;
+use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
-use std::convert::TryInto;
 
 impl<
     const CHAIN_COUNT: usize,
@@ -29,45 +27,111 @@ where
 
     pub fn generate_chains(
         nonce: &Nonce,
+        printer: impl DebugPrinter,
     ) -> [Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT] {
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let nonces = Self::split_nonce(nonce);
-        from_fn(|i| Self::generate_chain(i, &nonces[i]))
+        from_fn(|i| Self::generate_chain_split_nonce(i, &nonces[i], printer))
     }
 
     pub fn generate_chain(
         i: usize,
-        split_nonce: &Nonce,
+        nonce: &Nonce,
+        printer: impl DebugPrinter,
     ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
+        // SAFETY: The bytes are initialized in init_block and fill_block.
+        let mut blocks: Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> =
+            unsafe { Box::<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>::new_uninit().assume_init() };
+        Self::generate_allocated_chain(i, nonce, &mut blocks, printer);
+        blocks
+    }
+
+    fn generate_chain_split_nonce(
+        i: usize,
+        split_nonce: &Nonce,
+        printer: impl DebugPrinter,
+    ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
+        // SAFETY: The bytes are initialized in init_block and fill_block.
+        let mut blocks: Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> =
+            unsafe { Box::<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>::new_uninit().assume_init() };
+        Self::generate_allocated_chain_split_nonce(i, split_nonce, &mut blocks, printer);
+        blocks
+    }
+
+    pub fn generate_allocated_chain(
+        i: usize,
+        nonce: &Nonce,
+        blocks: &mut [Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+        printer: impl DebugPrinter,
+    ) {
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
+        let split_nonce = Self::split_nonce(nonce)[i];
+        Self::generate_allocated_chain_split_nonce(i, &split_nonce, blocks, printer)
+    }
+
+    fn generate_allocated_chain_split_nonce(
+        i: usize,
+        split_nonce: &Nonce,
+        blocks: &mut [Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+        printer: impl DebugPrinter,
+    ) {
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "generate chain {}/{CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes.",
+            i + 1,
+        ));
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "chain: split_nonce: {:x}, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}.",
+            Hex(split_nonce)
+        ));
         let offset = CHAIN_BLOCK_COUNT * i;
-        let mut blocks = Vec::with_capacity(CHAIN_BLOCK_COUNT);
-        blocks.push(Self::allocate_block(0u32, split_nonce));
-        blocks.push(Self::allocate_block(1u32, split_nonce));
-        for _ in 2..CHAIN_BLOCK_COUNT {
-            blocks.push([0u8; BLOCK_SIZE]);
-        }
+        blocks[0].fill(0u8);
+        blocks[1].fill(0u8);
+        let mut allocated_hash = [0; 64];
         for index in 2..CHAIN_BLOCK_COUNT {
             let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(
                 index + offset,
                 &blocks[index - 1],
             );
             debug_assert!(reference_index >= offset, "{reference_index} - {offset}");
-            Self::fill_block(split_nonce, &mut blocks, index, reference_index - offset);
+            Self::fill_block(
+                split_nonce,
+                blocks,
+                index,
+                reference_index - offset,
+                &mut allocated_hash,
+            );
         }
-        blocks.into_boxed_slice().try_into().unwrap()
     }
 
     pub fn combine_chains(
-        chains: &[Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT],
+        chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        printer: impl DebugPrinter,
     ) -> Box<[u8]> {
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "combine {CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes."
+        ));
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "proof: {STEP_COUNT} steps, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}."
+        ));
         let mut output = Vec::with_capacity(Self::ESTIMATED_FULL_PROOF_BYTE_COUNT);
         let leaves = chains
             .iter()
-            .flat_map(|it| it.iter().map(|it| Blake2bHasher::<HASH_LENGTH>::hash(it)))
+            .flat_map(|it| it.iter().map(|it| MerkleHasher::<HASH_LENGTH>::hash(it)))
             .collect::<Vec<_>>();
-        let tree = MerkleTree::<Blake2bHasher<HASH_LENGTH>>::from_leaves(&leaves);
+        let tree = MerkleTree::<MerkleHasher<HASH_LENGTH>>::from_leaves(&leaves);
         let root = tree.root().unwrap();
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!("root: {:x}", Hex(&root)));
         output.extend_from_slice(&root);
         for i in 0..STEP_COUNT {
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("step: {}/{STEP_COUNT}", i + 1));
             let index = challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i);
             let block = &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT];
             let parent_block =
@@ -76,33 +140,42 @@ where
                 reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, parent_block);
             let reference_block =
                 &chains[reference_index / CHAIN_BLOCK_COUNT][reference_index % CHAIN_BLOCK_COUNT];
-            let block_hash = Blake2bHasher::<HASH_LENGTH>::hash(block);
+            let block_hash = MerkleHasher::<HASH_LENGTH>::hash(block);
             let mut indices = [index - 1, index, reference_index];
             indices.sort_unstable();
             let proof = tree.proof(&indices).to_bytes();
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("index: {index}"));
             output.extend_from_slice(&(index as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("reference index: {reference_index}"));
             output.extend_from_slice(&(reference_index as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("bock hash: {:x}", Hex(&block_hash)));
             output.extend_from_slice(&block_hash);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "parent block hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(parent_block))
+            ));
             output.extend_from_slice(parent_block);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "reference block sha256 hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(reference_block))
+            ));
             output.extend_from_slice(reference_block);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("proof length: {} bytes", proof.len()));
             output.extend_from_slice(&(proof.len() as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "proof hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(&proof))
+            ));
             output.extend_from_slice(&proof);
         }
         output.into_boxed_slice()
-    }
-
-    fn allocate_block(i: u32, nonce: &Nonce) -> Block<BLOCK_SIZE> {
-        let mut hasher = Blake2b512::new_with_prefix(i.to_le_bytes());
-        hasher.update(nonce);
-        let mut hash = hasher.finalize_fixed();
-        for _ in 0..ITERATION_COUNT {
-            hash = Blake2b512::digest(hash);
-        }
-        let mut allocated = [0u8; BLOCK_SIZE];
-        SimpleHkdf::<Blake2b512>::new(Some(nonce), &hash)
-            .expand(&[], &mut allocated)
-            .expect("failed to expand hash");
-        allocated
     }
 
     fn fill_block(
@@ -110,16 +183,16 @@ where
         blocks: &mut [Block<BLOCK_SIZE>],
         index: usize,
         reference_index: usize,
+        hash: &mut [u8; 64],
     ) {
-        debug_assert!(index > 0, "{index}");
-        let mut hasher = Blake2b512::new_with_prefix(blocks[index - 1]);
-        hasher.update(blocks[reference_index]);
-        let mut hash = hasher.finalize_fixed();
+        MerkleHasher::hash_with_custom_domain_into(
+            &blocks[index - 1],
+            &blocks[reference_index],
+            hash,
+        );
         for _ in 0..ITERATION_COUNT {
-            hash = Blake2b512::digest(hash);
+            MerkleHasher::hash_self(hash);
         }
-        SimpleHkdf::<Blake2b512>::new(Some(nonce), &hash)
-            .expand(&[], &mut blocks[index])
-            .expect("failed to expand hash");
+        MerkleHasher::hash_with_custom_domain_into(nonce, hash, &mut blocks[index]);
     }
 }
