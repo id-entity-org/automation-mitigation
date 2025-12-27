@@ -104,11 +104,11 @@ impl<const HASH_LENGTH: usize> MerkleHasher<HASH_LENGTH> {
         }
         #[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
         {
-            // let core = CShake256Core::new_with_function_name(b"pow", prefix);
-            // let mut hasher = sha3::CShake256::from_core(core);
-            // hasher.update(data);
-            // let mut reader = hasher.finalize_xof();
-            // reader.read(hash);
+            let core = CShake256Core::new_with_function_name(b"pow", prefix);
+            let mut hasher = sha3::CShake256::from_core(core);
+            hasher.update(data);
+            let mut reader = hasher.finalize_xof();
+            reader.read(hash);
         }
         #[cfg(all(
             feature = "const-hash",
@@ -117,5 +117,28 @@ impl<const HASH_LENGTH: usize> MerkleHasher<HASH_LENGTH> {
         CShake256::new(b"pow", prefix)
             .update(data)
             .finalize_into(hash);
+    }
+    pub fn hash_with_custom_domain_into_slice(prefix: &[u8], data: &[u8], hash: &mut [u8]) {
+        #[cfg(feature = "tiny-keccak")]
+        {
+            let mut hasher = CShake::v256(b"pow", prefix);
+            hasher.update(data);
+            hasher.finalize(hash);
+        }
+        #[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
+        {
+            let core = CShake256Core::new_with_function_name(b"pow", prefix);
+            let mut hasher = sha3::CShake256::from_core(core);
+            hasher.update(data);
+            let mut reader = hasher.finalize_xof();
+            reader.read(hash);
+        }
+        #[cfg(all(
+            feature = "const-hash",
+            not(any(feature = "tiny-keccak", feature = "rust-crypto"))
+        ))]
+        CShake256::new(b"pow", prefix)
+            .update(data)
+            .finalize_into_slice(hash);
     }
 }

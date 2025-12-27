@@ -81,6 +81,7 @@ mod generator;
 mod generate {
     use super::*;
     pub use crate::chains::*;
+    use std::mem::MaybeUninit;
 
     pub fn generate_proof(nonce: &Nonce, printer: impl DebugPrinter) -> Box<[u8]> {
         let chains = DefaultGenerator::generate_chains(nonce, printer);
@@ -112,6 +113,11 @@ mod generate {
     ) {
         assert!(i < DEFAULT_CHAIN_COUNT);
         let split_nonce = DefaultGenerator::split_nonce(nonce)[i];
+        // SAFETY: we just convert valid allocated memory into MaybeUninit
+        let blocks = unsafe {
+            &mut *(blocks as *mut _
+                as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
+        };
         DefaultGenerator::generate_allocated_chain(i, &split_nonce, blocks, printer)
     }
 
@@ -191,6 +197,7 @@ mod tests {
     use super::*;
     use crate::hex::Hex;
     use sha2::{Digest, Sha256};
+    use std::mem::MaybeUninit;
     use std::thread;
 
     #[derive(Copy, Clone)]
@@ -207,7 +214,11 @@ mod tests {
             unsafe { std::slice::from_raw_parts_mut(ptr, DEFAULT_CHAIN_BLOCK_COUNT) }
                 .try_into()
                 .unwrap();
-        DefaultGenerator::generate_allocated_chain(0, &nonce, ptr, StdDebugPrinter);
+        let blocks = unsafe {
+            &mut *(ptr as *mut _
+                as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
+        };
+        DefaultGenerator::generate_allocated_chain(0, &nonce, blocks, StdDebugPrinter);
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()
@@ -217,7 +228,7 @@ mod tests {
             "7a2dc34a90a6e1d198c1de74febddf3d526fc679e378451f9adfff675af78b95",
             hash
         );
-        DefaultGenerator::generate_allocated_chain(1, &nonce, ptr, StdDebugPrinter);
+        DefaultGenerator::generate_allocated_chain(1, &nonce, blocks, StdDebugPrinter);
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()

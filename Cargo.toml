@@ -14,7 +14,7 @@ repository = "https://github.com/id-entity-org/automation-mitigation"
 
 [workspace.dependencies.keccak-const]
 git = "https://github.com/programingjd/keccak-const.git"
-rev = "ade65d1"
+rev = "95803db"
 #version = "0.2"
 default-features = false
 features = []

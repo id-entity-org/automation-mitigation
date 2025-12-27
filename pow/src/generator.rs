@@ -6,6 +6,8 @@ use crate::{challenge_index, reference_block_index, Block, Nonce};
 use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
+use std::mem::MaybeUninit;
+use std::ptr;
 
 impl<
     const CHAIN_COUNT: usize,
@@ -40,11 +42,12 @@ where
         nonce: &Nonce,
         printer: impl DebugPrinter,
     ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
-        // SAFETY: The bytes are initialized in init_block and fill_block.
-        let mut blocks: Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> =
-            unsafe { Box::<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>::new_uninit().assume_init() };
-        Self::generate_allocated_chain(i, nonce, &mut blocks, printer);
-        blocks
+        let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
+            allocated.as_mut().try_into().unwrap();
+        Self::generate_allocated_chain(i, nonce, blocks, printer);
+        // SAFETY: We just initialized all the blocks.
+        unsafe { allocated.assume_init() }.try_into().unwrap()
     }
 
     fn generate_chain_split_nonce(
@@ -52,17 +55,18 @@ where
         split_nonce: &Nonce,
         printer: impl DebugPrinter,
     ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
-        // SAFETY: The bytes are initialized in init_block and fill_block.
-        let mut blocks: Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> =
-            unsafe { Box::<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>::new_uninit().assume_init() };
-        Self::generate_allocated_chain_split_nonce(i, split_nonce, &mut blocks, printer);
-        blocks
+        let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
+            allocated.as_mut().try_into().unwrap();
+        Self::generate_allocated_chain_split_nonce(i, split_nonce, blocks, printer);
+        // SAFETY: We just initialized all the blocks.
+        unsafe { allocated.assume_init() }.try_into().unwrap()
     }
 
     pub fn generate_allocated_chain(
         i: usize,
         nonce: &Nonce,
-        blocks: &mut [Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
         printer: impl DebugPrinter,
     ) {
         #[cfg(feature = "debug")]
@@ -74,7 +78,7 @@ where
     fn generate_allocated_chain_split_nonce(
         i: usize,
         split_nonce: &Nonce,
-        blocks: &mut [Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
         printer: impl DebugPrinter,
     ) {
         #[cfg(feature = "debug")]
@@ -88,13 +92,17 @@ where
             Hex(split_nonce)
         ));
         let offset = CHAIN_BLOCK_COUNT * i;
-        blocks[0].fill(0u8);
-        blocks[1].fill(0u8);
+        // SAFETY: Fill the first two blocks with zeros (they are just Box<[u8]>)
+        unsafe {
+            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
+            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
+        }
         let mut allocated_hash = [0; 64];
         for index in 2..CHAIN_BLOCK_COUNT {
             let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(
                 index + offset,
-                &blocks[index - 1],
+                // SAFETY: We know blocks[index - 1] is initialized in a previous iteration.
+                unsafe { blocks[index - 1].assume_init_ref() },
             );
             debug_assert!(reference_index >= offset, "{reference_index} - {offset}");
             Self::fill_block(
@@ -180,19 +188,26 @@ where
 
     fn fill_block(
         nonce: &Nonce,
-        blocks: &mut [Block<BLOCK_SIZE>],
+        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
         index: usize,
         reference_index: usize,
         hash: &mut [u8; 64],
     ) {
+        // SAFETY: We know blocks[index - 1] and block[reference_index] are already initialized.
         MerkleHasher::hash_with_custom_domain_into(
-            &blocks[index - 1],
-            &blocks[reference_index],
+            unsafe { blocks[index - 1].assume_init_ref() },
+            unsafe { blocks[reference_index].assume_init_ref() },
             hash,
         );
         for _ in 0..ITERATION_COUNT {
             MerkleHasher::hash_self(hash);
         }
-        MerkleHasher::hash_with_custom_domain_into(nonce, hash, &mut blocks[index]);
+        // SAFETY: The hasher will fill the block without reading the bytes.
+        let block = unsafe {
+            core::slice::from_raw_parts_mut(blocks[index].as_mut_ptr() as *mut u8, BLOCK_SIZE)
+        }
+        .try_into()
+        .unwrap();
+        MerkleHasher::<BLOCK_SIZE>::hash_with_custom_domain_into_slice(nonce, hash, block);
     }
 }

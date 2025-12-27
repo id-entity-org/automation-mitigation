@@ -99,7 +99,7 @@ dependencies = [
 [[package]]
 name = "keccak-const"
 version = "0.3.0"
-source = "git+https://github.com/programingjd/keccak-const.git?rev=ade65d1#ade65d1bd19917eb98b3e6a7aafeef521b18ce29"
+source = "git+https://github.com/programingjd/keccak-const.git?rev=95803db#95803db055048a79199756efb7d1cb71d1ab4570"
 
 [[package]]
 name = "libc"
