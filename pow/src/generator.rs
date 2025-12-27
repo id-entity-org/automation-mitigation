@@ -9,6 +9,8 @@ use std::array::from_fn;
 use std::mem::MaybeUninit;
 use std::ptr;
 
+pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
+
 impl<
     const CHAIN_COUNT: usize,
     const STEP_COUNT: usize,
@@ -115,6 +117,33 @@ where
         }
     }
 
+    pub fn hash_chain(
+        chain: &[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+    ) -> Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]> {
+        let vec = chain
+            .iter()
+            .map(|it| {
+                let hash: [u8; HASH_LENGTH] = MerkleHasher::<HASH_LENGTH>::hash(it);
+                hash
+            })
+            .collect::<Vec<_>>();
+        vec.into_boxed_slice().try_into().unwrap()
+    }
+
+    pub fn build_state(
+        hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+    ) -> State<HASH_LENGTH> {
+        let leaves: Vec<[u8; HASH_LENGTH]> = hash_chains
+            .into_iter()
+            .flat_map(|&it| it.into_iter().copied())
+            .collect::<Vec<_>>();
+        State(MerkleTree::from_leaves(&leaves))
+    }
+    pub fn select_indices(state: &mut State<HASH_LENGTH>) -> [usize; STEP_COUNT] {
+        let root = state.0.root().unwrap();
+        from_fn(|i| challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i))
+    }
+
     pub fn combine_chains(
         chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
         printer: impl DebugPrinter,
@@ -169,7 +198,7 @@ where
             output.extend_from_slice(parent_block);
             #[cfg(feature = "debug")]
             printer.debug_println(&format!(
-                "reference block sha256 hash: {:x}",
+                "reference block hash: {:x}",
                 Hex(&MerkleHasher::<HASH_LENGTH>::hash(reference_block))
             ));
             output.extend_from_slice(reference_block);

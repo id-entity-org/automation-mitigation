@@ -1,10 +1,10 @@
 extern crate rs_merkle;
 
-pub const DEFAULT_BLOCK_SIZE: usize = 256;
-pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 524_288;
+pub const DEFAULT_BLOCK_SIZE: usize = 1_024;
+pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 131_072;
 pub const DEFAULT_CHAIN_COUNT: usize = 2;
 pub const DEFAULT_STEP_COUNT: usize = 10;
-pub const DEFAULT_ITERATION_COUNT: usize = 4;
+pub const DEFAULT_ITERATION_COUNT: usize = 64;
 pub const DEFAULT_HASH_LENGTH: usize = 16;
 
 pub type Nonce = [u8; 16];
@@ -119,6 +119,12 @@ mod generate {
         DefaultGenerator::generate_allocated_chain(i, &nonce, blocks, printer)
     }
 
+    pub fn hash_chain(
+        chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
+    ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> {
+        DefaultGenerator::hash_chain(chain)
+    }
+
     pub fn combine_chains(
         chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
@@ -223,7 +229,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "7a2dc34a90a6e1d198c1de74febddf3d526fc679e378451f9adfff675af78b95",
+            "6e7762fbaa520c52d26444144328d7ee0fb3d74600a3029cad9c27b92e952c09",
             hash
         );
         DefaultGenerator::generate_allocated_chain(1, &nonce, blocks, StdDebugPrinter);
@@ -233,7 +239,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "7ee2ea4e4ca21b8433f33ba7fd912f24f52eecdac293dd31211a1e04522acd6c",
+            "829458862c26dad6d469359a33da7c44ba74aaf200758fd71235072bfc107f96",
             hash
         );
         let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter);
@@ -249,7 +255,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "7a2dc34a90a6e1d198c1de74febddf3d526fc679e378451f9adfff675af78b95",
+            "6e7762fbaa520c52d26444144328d7ee0fb3d74600a3029cad9c27b92e952c09",
             hash
         );
         let chain = Box::into_raw(chain2) as *mut u8;
@@ -262,13 +268,13 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "7ee2ea4e4ca21b8433f33ba7fd912f24f52eecdac293dd31211a1e04522acd6c",
+            "829458862c26dad6d469359a33da7c44ba74aaf200758fd71235072bfc107f96",
             hash
         );
         let hash = Sha256::default().chain_update(proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "263f1bba8dac6b36dcefa5d676d2a1c8445a894d8ef06a7743c54d15e7107e0e",
+            "de89a67adf2330597b9ed936321ad1ee33b05b9fafad4803572301204cc30ba5",
             hash
         );
     }
@@ -280,7 +286,7 @@ mod tests {
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "06934a271944e1034f0b16e494bc4e6a65a9775c1000bc0b62c72a6d0300828d",
+            "cc150e9332321a0e4952e19c24f7b86910e53d0c3d3f3f2b8768dd67320f0bb5",
             hash
         );
         let verified = verify_proof(&nonce, &proof);

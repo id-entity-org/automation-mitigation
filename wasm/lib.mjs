@@ -19,4 +19,8 @@ const generateChain=(i,nonce)=>{
 const freeChain=chain=>{
   wasm.freeChain(chain.byteOffset);
 }
+const combineChains=(chain1,chain2)=>{
+  const res=wasm.combine_chains(chain1.byteOffset,chain2.byteOffset);
+  
+};
 export{generateChain,freeChain};

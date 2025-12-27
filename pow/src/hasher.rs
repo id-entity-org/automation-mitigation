@@ -59,10 +59,10 @@ impl<const HASH_LENGTH: usize> MerkleHasher<HASH_LENGTH> {
         }
         #[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
         {
-            // let mut hasher = sha3::Shake256::default();
-            // hasher.update(hash);
-            // let mut reader = hasher.finalize_xof();
-            // reader.read(hash);
+            let mut hasher = sha3::Shake256::default();
+            hasher.update(hash);
+            let mut reader = hasher.finalize_xof();
+            reader.read(hash);
         }
         #[cfg(all(
             feature = "const-hash",

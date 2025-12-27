@@ -27,6 +27,7 @@ features = ["cshake", "shake"]
 [workspace.dependencies.sha3]
 version = "0.10"
 default-features = true
+features = ["asm"]
 
 [workspace.dependencies.rs_merkle]
 git = "https://github.com/programingjd/rs-merkle.git"
