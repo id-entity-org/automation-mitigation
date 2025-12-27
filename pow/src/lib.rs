@@ -101,8 +101,7 @@ mod generate {
         printer: impl DebugPrinter,
     ) -> Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]> {
         assert!(i < DEFAULT_CHAIN_COUNT);
-        let split_nonce = DefaultGenerator::split_nonce(nonce)[i];
-        DefaultGenerator::generate_chain(i, &split_nonce, printer)
+        DefaultGenerator::generate_chain(i, &nonce, printer)
     }
 
     pub fn generate_allocated_chain(
@@ -112,13 +111,12 @@ mod generate {
         printer: impl DebugPrinter,
     ) {
         assert!(i < DEFAULT_CHAIN_COUNT);
-        let split_nonce = DefaultGenerator::split_nonce(nonce)[i];
         // SAFETY: we just convert valid allocated memory into MaybeUninit
         let blocks = unsafe {
             &mut *(blocks as *mut _
                 as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
         };
-        DefaultGenerator::generate_allocated_chain(i, &split_nonce, blocks, printer)
+        DefaultGenerator::generate_allocated_chain(i, &nonce, blocks, printer)
     }
 
     pub fn combine_chains(
