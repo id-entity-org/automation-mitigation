@@ -139,6 +139,6 @@ impl<const HASH_LENGTH: usize> MerkleHasher<HASH_LENGTH> {
         ))]
         CShake256::new(b"pow", prefix)
             .update(data)
-            .finalize_into_slice(hash);
+            .finalize_into_slice::<HASH_LENGTH>(hash);
     }
 }
