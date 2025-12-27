@@ -24,12 +24,14 @@ impl Printer {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *const u8 {
+    Printer.debug_println("cast nonce to &[u8; 16]");
     let nonce: &[u8; 16] = unsafe {
         std::slice::from_raw_parts(nonce_ptr, 16)
             .try_into()
             .inspect_err(|err| Printer.error_println(&format!("{err}")))
             .unwrap()
     };
+    Printer.debug_println("generate chain");
     let chain = pow::generate_chain(i, nonce, Printer);
     Box::into_raw(chain) as *const u8
 }
@@ -39,30 +41,6 @@ pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
     let _ = unsafe {
         Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
     };
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn generate_chain_prealloc(
-    i: usize,
-    nonce_ptr: *const u8,
-    chain_ptr: *mut u8,
-) {
-    let nonce: &[u8; 16] = unsafe {
-        std::slice::from_raw_parts(nonce_ptr, 16)
-            .try_into()
-            .inspect_err(|err| Printer.error_println(&format!("{err}")))
-            .unwrap()
-    };
-    let chain: &mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
-        std::slice::from_raw_parts_mut(
-            chain_ptr as *mut Block<DEFAULT_BLOCK_SIZE>,
-            DEFAULT_CHAIN_BLOCK_COUNT,
-        )
-        .try_into()
-        .inspect_err(|err| Printer.error_println(&format!("{err}")))
-        .unwrap()
-    };
-    pow::generate_allocated_chain(i, nonce, chain, Printer);
 }
 
 #[repr(C)]
@@ -100,12 +78,16 @@ pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *cons
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn malloc(len: usize) -> *mut u8 {
-    let mut boxed = unsafe { Box::<[u8]>::new_uninit_slice(len).assume_init() };
-    boxed.as_mut_ptr()
+pub unsafe extern "C" fn malloc(size: usize) -> *mut u8 {
+    Printer.debug_println("malloc");
+    let mut vec = Vec::<u8>::with_capacity(size);
+    let ptr = vec.as_mut_ptr();
+    core::mem::forget(vec);
+    ptr
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free(ptr: *mut u8, len: usize) {
+    Printer.debug_println("free");
     let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(ptr, len)) };
 }

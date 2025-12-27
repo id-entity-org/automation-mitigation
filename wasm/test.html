@@ -17,7 +17,7 @@ a{color:inherit}
 </main>
 </body>
 <script type="module">
-import {generateChain,generateChainPrealloc} from './lib.mjs';
+import {generateChain,freeChain} from './lib.mjs';
 const link=document.querySelector('main>a');
 // const nonce=new Uint8Array(16);
 // crypto.getRandomValues(nonce);
@@ -32,7 +32,7 @@ const t1=Date.now();
 console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',chain1))).toHex()}`);
 console.log(`${t1-t0}ms`);
 const t3=Date.now();
-const chain2=await generateChainPrealloc(0,nonce);
+const chain2=await generateChain(1,nonce);
 const t4=Date.now();
 console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',chain2))).toHex()}`);
 console.log(`${t4-t3}ms`);
