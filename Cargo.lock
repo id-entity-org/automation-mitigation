@@ -110,7 +110,7 @@ checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
 [[package]]
 name = "rs_merkle"
 version = "1.6.0"
-source = "git+https://github.com/programingjd/rs-merkle.git?rev=fbe8c1f#fbe8c1f9ac7e64434823ea0c9a78c07c38750a0e"
+source = "git+https://github.com/programingjd/rs-merkle.git?rev=798b6b0#798b6b0e3a4520db8b5b94523bdc53b6ac3233f1"
 
 [[package]]
 name = "sha2"

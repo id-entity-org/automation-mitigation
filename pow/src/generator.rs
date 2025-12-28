@@ -170,14 +170,13 @@ where
             #[cfg(feature = "debug")]
             printer.debug_println(&format!("step: {}/{STEP_COUNT}", i + 1));
             let index = challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i);
-            let block = &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT];
             let parent_block =
                 &chains[(index - 1) / CHAIN_BLOCK_COUNT][(index - 1) % CHAIN_BLOCK_COUNT];
             let reference_index =
                 reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, parent_block);
             let reference_block =
                 &chains[reference_index / CHAIN_BLOCK_COUNT][reference_index % CHAIN_BLOCK_COUNT];
-            let block_hash = MerkleHasher::<HASH_LENGTH>::hash(block);
+            let block_hash = tree.leaf(index).unwrap();
             let mut indices = [index - 1, index, reference_index];
             indices.sort_unstable();
             let proof = tree.proof(&indices).to_bytes();
@@ -188,8 +187,8 @@ where
             printer.debug_println(&format!("reference index: {reference_index}"));
             output.extend_from_slice(&(reference_index as u32).to_le_bytes());
             #[cfg(feature = "debug")]
-            printer.debug_println(&format!("bock hash: {:x}", Hex(&block_hash)));
-            output.extend_from_slice(&block_hash);
+            printer.debug_println(&format!("bock hash: {:x}", Hex(block_hash)));
+            output.extend_from_slice(block_hash);
             #[cfg(feature = "debug")]
             printer.debug_println(&format!(
                 "parent block hash: {:x}",
