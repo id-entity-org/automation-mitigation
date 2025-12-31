@@ -8,6 +8,7 @@ use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
 use std::mem::MaybeUninit;
 use std::ptr;
+use std::ptr::copy_nonoverlapping;
 
 pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
 
@@ -127,27 +128,150 @@ where
                 hash
             })
             .collect::<Vec<_>>();
-        vec.into_boxed_slice().try_into().unwrap()
+        let raw = Box::into_raw(vec.into_boxed_slice());
+        // SAFETY: we know the vec is the same size as the input chain.
+        unsafe { Box::from_raw(raw as *mut [[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]) }
     }
 
     pub fn build_state(
-        hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        hash_chains: Box<[Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT]>,
     ) -> State<HASH_LENGTH> {
-        let leaves: Vec<[u8; HASH_LENGTH]> = hash_chains
-            .into_iter()
-            .flat_map(|&it| it.into_iter().copied())
-            .collect::<Vec<_>>();
+        let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
+        let mut cursor = leaves.as_mut_ptr();
+        for chain in hash_chains.into_iter() {
+            let chain = Box::into_raw(chain);
+            // SAFETY: direct memory copy and adjust size, we already reserved the correct capacity.
+            unsafe {
+                copy_nonoverlapping(chain as *const [u8; HASH_LENGTH], cursor, CHAIN_BLOCK_COUNT);
+                cursor = cursor.add(CHAIN_BLOCK_COUNT);
+                let _ = Box::from_raw(chain);
+            }
+        }
+        // SAFETY: we've reserved the correct capacity and added the elements manually.
+        unsafe {
+            leaves.set_len(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
+        }
         State(MerkleTree::from_leaves(&leaves))
     }
-    pub fn select_indices(state: &mut State<HASH_LENGTH>) -> [usize; STEP_COUNT] {
+    pub fn select_indices(state: &State<HASH_LENGTH>) -> Box<[usize; STEP_COUNT]> {
         let root = state.0.root().unwrap();
-        from_fn(|i| challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i))
+        Box::new(from_fn(|i| {
+            challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i)
+        }))
+    }
+
+    pub fn select_reference_indices(
+        indices: &[usize; STEP_COUNT],
+        parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
+    ) -> Box<[usize; STEP_COUNT]> {
+        let vec = indices
+            .iter()
+            .enumerate()
+            .map(|(i, &index)| {
+                reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, &parent_blocks[i])
+            })
+            .collect::<Vec<_>>();
+        let raw = Box::into_raw(vec.into_boxed_slice());
+        // SAFETY: we know the vec is the same size as the slice of indices.
+        unsafe { Box::from_raw(raw as *mut [usize; STEP_COUNT]) }
+    }
+
+    pub fn combine(
+        state: State<HASH_LENGTH>,
+        indices: &[usize; STEP_COUNT],
+        reference_indices: &[usize; STEP_COUNT],
+        parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
+        reference_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
+        printer: impl DebugPrinter,
+    ) -> Box<[u8]> {
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "combine {CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes."
+        ));
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "proof: {STEP_COUNT} steps, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}."
+        ));
+        let mut output = Vec::with_capacity(Self::ESTIMATED_FULL_PROOF_BYTE_COUNT);
+        let tree = state.0;
+        let root = tree.root().unwrap();
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!("root: {:x}", Hex(&root)));
+        output.extend_from_slice(&root);
+        for i in 0..STEP_COUNT {
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("step: {}/{STEP_COUNT}", i + 1));
+            let index = indices[i];
+            let parent_block = parent_blocks[i];
+            let reference_index = reference_indices[i];
+            let reference_block = reference_blocks[i];
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("index: {index}"));
+            output.extend_from_slice(&(index as u32).to_le_bytes());
+            let block_hash = tree.leaf(index).unwrap();
+            let mut indices = [index - 1, index, reference_index];
+            indices.sort_unstable();
+            let proof = tree.proof(&indices).to_bytes();
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("index: {index}"));
+            output.extend_from_slice(&(index as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("reference index: {reference_index}"));
+            output.extend_from_slice(&(reference_index as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("bock hash: {:x}", Hex(block_hash)));
+            output.extend_from_slice(block_hash);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "parent block hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(parent_block))
+            ));
+            output.extend_from_slice(parent_block);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "reference block hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(reference_block))
+            ));
+            output.extend_from_slice(reference_block);
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!("proof length: {} bytes", proof.len()));
+            output.extend_from_slice(&(proof.len() as u32).to_le_bytes());
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "proof hash: {:x}",
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(&proof))
+            ));
+            output.extend_from_slice(&proof);
+        }
+        output.into_boxed_slice()
     }
 
     pub fn combine_chains(
         chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
+        let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(&chains[i]));
+        let hash_chains = Box::new(hash_chains);
+        let mut state = Self::build_state(hash_chains);
+        let indices = Self::select_indices(&mut state);
+        let parent_blocks = Box::new(from_fn(|i| {
+            let index = indices[i] - 1;
+            &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT]
+        }));
+        let reference_indices = Self::select_reference_indices(&indices, &parent_blocks);
+        let reference_blocks = Box::new(from_fn(|i| {
+            let index = reference_indices[i];
+            &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT]
+        }));
+        Self::combine(
+            state,
+            &indices,
+            &reference_indices,
+            &parent_blocks,
+            &reference_blocks,
+            printer,
+        )
+        /*
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
             "combine {CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes."
@@ -212,6 +336,7 @@ where
             output.extend_from_slice(&proof);
         }
         output.into_boxed_slice()
+        */
     }
 
     fn fill_block(
