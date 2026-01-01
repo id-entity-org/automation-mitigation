@@ -134,7 +134,7 @@ where
     }
 
     pub fn build_state(
-        hash_chains: Box<[Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT]>,
+        hash_chains: [Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT],
     ) -> State<HASH_LENGTH> {
         let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         let mut cursor = leaves.as_mut_ptr();
@@ -168,7 +168,7 @@ where
             .iter()
             .enumerate()
             .map(|(i, &index)| {
-                reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, &parent_blocks[i])
+                reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, parent_blocks[i])
             })
             .collect::<Vec<_>>();
         let raw = Box::into_raw(vec.into_boxed_slice());
@@ -205,9 +205,6 @@ where
             let parent_block = parent_blocks[i];
             let reference_index = reference_indices[i];
             let reference_block = reference_blocks[i];
-            #[cfg(feature = "debug")]
-            printer.debug_println(&format!("index: {index}"));
-            output.extend_from_slice(&(index as u32).to_le_bytes());
             let block_hash = tree.leaf(index).unwrap();
             let mut indices = [index - 1, index, reference_index];
             indices.sort_unstable();
@@ -250,10 +247,9 @@ where
         chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
-        let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(&chains[i]));
-        let hash_chains = Box::new(hash_chains);
-        let mut state = Self::build_state(hash_chains);
-        let indices = Self::select_indices(&mut state);
+        let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
+        let state = Self::build_state(hash_chains);
+        let indices = Self::select_indices(&state);
         let parent_blocks = Box::new(from_fn(|i| {
             let index = indices[i] - 1;
             &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT]
@@ -271,7 +267,12 @@ where
             &reference_blocks,
             printer,
         )
-        /*
+    }
+
+    pub fn combine_chains2(
+        chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        printer: impl DebugPrinter,
+    ) -> Box<[u8]> {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
             "combine {CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes."
@@ -336,7 +337,6 @@ where
             output.extend_from_slice(&proof);
         }
         output.into_boxed_slice()
-        */
     }
 
     fn fill_block(
@@ -358,9 +358,7 @@ where
         // SAFETY: The hasher will fill the block without reading the bytes.
         let block = unsafe {
             core::slice::from_raw_parts_mut(blocks[index].as_mut_ptr() as *mut u8, BLOCK_SIZE)
-        }
-        .try_into()
-        .unwrap();
+        };
         MerkleHasher::<BLOCK_SIZE>::hash_with_custom_domain_into_slice(nonce, hash, block);
     }
 }

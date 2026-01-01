@@ -101,7 +101,7 @@ mod generate {
         printer: impl DebugPrinter,
     ) -> Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]> {
         assert!(i < DEFAULT_CHAIN_COUNT);
-        DefaultGenerator::generate_chain(i, &nonce, printer)
+        DefaultGenerator::generate_chain(i, nonce, printer)
     }
 
     pub fn generate_allocated_chain(
@@ -116,7 +116,7 @@ mod generate {
             &mut *(blocks as *mut _
                 as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
         };
-        DefaultGenerator::generate_allocated_chain(i, &nonce, blocks, printer)
+        DefaultGenerator::generate_allocated_chain(i, nonce, blocks, printer)
     }
 
     pub fn hash_chain(
