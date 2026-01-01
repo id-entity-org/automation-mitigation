@@ -37,6 +37,27 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *cons
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *const u8 {
+    let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
+        std::slice::from_raw_parts(
+            chain_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
+            DEFAULT_CHAIN_BLOCK_COUNT,
+        )
+        .try_into()
+        .inspect_err(|err| Printer.error_println(&format!("{err}")))
+        .unwrap()
+    };
+    Printer.debug_println("hash chain");
+    let hash_chain = pow::hash_chain(chain);
+    Box::into_raw(hash_chain) as *const u8
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn build_state(chain1_ptr: *const u8, chain2_ptr: *const u8) -> *const u8 {
+    todo!()
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
     let _ = unsafe {
         Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
