@@ -134,17 +134,15 @@ where
     }
 
     pub fn build_state(
-        hash_chains: [Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT],
+        hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
     ) -> State<HASH_LENGTH> {
         let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         let mut cursor = leaves.as_mut_ptr();
-        for chain in hash_chains.into_iter() {
-            let chain = Box::into_raw(chain);
+        for chain in hash_chains.iter() {
             // SAFETY: direct memory copy and adjust size, we already reserved the correct capacity.
             unsafe {
-                copy_nonoverlapping(chain as *const [u8; HASH_LENGTH], cursor, CHAIN_BLOCK_COUNT);
+                copy_nonoverlapping(chain.as_ptr(), cursor, CHAIN_BLOCK_COUNT);
                 cursor = cursor.add(CHAIN_BLOCK_COUNT);
-                let _ = Box::from_raw(chain);
             }
         }
         // SAFETY: we've reserved the correct capacity and added the elements manually.
@@ -248,7 +246,7 @@ where
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
-        let state = Self::build_state(hash_chains);
+        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()));
         let indices = Self::select_indices(&state);
         let parent_blocks = Box::new(from_fn(|i| {
             let index = indices[i] - 1;

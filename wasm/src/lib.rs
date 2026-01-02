@@ -1,4 +1,6 @@
-use pow::{Block, DebugPrinter, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT};
+use pow::{
+    Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_HASH_LENGTH,
+};
 
 #[link(wasm_import_module = "js")]
 unsafe extern "C" {
@@ -37,7 +39,7 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *cons
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *const u8 {
+pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
         std::slice::from_raw_parts(
             chain_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
@@ -49,12 +51,35 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *const u8 {
     };
     Printer.debug_println("hash chain");
     let hash_chain = pow::hash_chain(chain);
-    Box::into_raw(hash_chain) as *const u8
+    Box::into_raw(hash_chain) as *mut u8
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn build_state(chain1_ptr: *const u8, chain2_ptr: *const u8) -> *const u8 {
-    todo!()
+pub unsafe extern "C" fn build_state(
+    chain1_ptr: *const u8,
+    chain2_ptr: *const u8,
+) -> *mut State<DEFAULT_HASH_LENGTH> {
+    let state = pow::build_state(&[
+        unsafe {
+            std::slice::from_raw_parts(
+                chain1_ptr as *const [u8; DEFAULT_HASH_LENGTH],
+                DEFAULT_CHAIN_BLOCK_COUNT,
+            )
+            .try_into()
+            .inspect_err(|err| Printer.error_println(&format!("{err}")))
+            .unwrap()
+        },
+        unsafe {
+            std::slice::from_raw_parts(
+                chain2_ptr as *const [u8; DEFAULT_HASH_LENGTH],
+                DEFAULT_CHAIN_BLOCK_COUNT,
+            )
+            .try_into()
+            .inspect_err(|err| Printer.error_println(&format!("{err}")))
+            .unwrap()
+        },
+    ]);
+    Box::into_raw(state)
 }
 
 #[unsafe(no_mangle)]
@@ -62,6 +87,11 @@ pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
     let _ = unsafe {
         Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
     };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_state(ptr: *mut State<DEFAULT_HASH_LENGTH>) {
+    let _ = unsafe { Box::from_raw(ptr) };
 }
 
 #[repr(C)]

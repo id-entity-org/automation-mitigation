@@ -81,6 +81,7 @@ mod generator;
 mod generate {
     use super::*;
     pub use crate::chains::*;
+    pub use crate::generator::State;
     use std::mem::MaybeUninit;
 
     pub fn generate_proof(nonce: &Nonce, printer: impl DebugPrinter) -> Box<[u8]> {
@@ -123,6 +124,13 @@ mod generate {
         chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
     ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> {
         DefaultGenerator::hash_chain(chain)
+    }
+
+    pub fn build_state(
+        hash_chains: &[&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT];
+             DEFAULT_CHAIN_COUNT],
+    ) -> Box<State<DEFAULT_HASH_LENGTH>> {
+        Box::new(DefaultGenerator::build_state(hash_chains))
     }
 
     pub fn combine_chains(
