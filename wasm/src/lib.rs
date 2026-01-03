@@ -2,6 +2,7 @@ use pow::{
     Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT,
     DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
 };
+use std::array::from_fn;
 
 #[link(wasm_import_module = "js")]
 unsafe extern "C" {
@@ -85,11 +86,13 @@ pub unsafe extern "C" fn select_indices(state: *const State<DEFAULT_HASH_LENGTH>
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn select_reference_indices(
     indices: *const usize,
-    parent_blocks: *const usize,
+    parent_blocks: *const u8,
 ) -> *mut usize {
+    let parent_blocks: &[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT] =
+        unsafe { &*(parent_blocks as *const [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
     let reference_indices = pow::select_reference_indices(
         unsafe { &*(indices as *const [usize; DEFAULT_STEP_COUNT]) },
-        unsafe { &*(parent_blocks as *const [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT]) },
+        &from_fn(|i| &parent_blocks[i]),
     );
     Box::into_raw(reference_indices) as *mut usize
 }
@@ -101,25 +104,25 @@ pub unsafe extern "C" fn combine(
     state: *mut State<DEFAULT_HASH_LENGTH>,
     indices: *mut usize,
     reference_indices: *mut usize,
-    parent_blocks: *mut usize,
-    reference_blocks: *mut usize,
+    parent_blocks: *mut u8,
+    reference_blocks: *mut u8,
 ) -> PtrAndLen {
     let state = unsafe { Box::from_raw(state) };
     let indices = unsafe { Box::from_raw(indices as *mut [usize; DEFAULT_STEP_COUNT]) };
     let reference_indices =
         unsafe { Box::from_raw(reference_indices as *mut [usize; DEFAULT_STEP_COUNT]) };
-    let parent_blocks = unsafe {
-        Box::from_raw(parent_blocks as *mut [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT])
+    let parent_blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> = unsafe {
+        Box::from_raw(parent_blocks as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT])
     };
-    let reference_blocks = unsafe {
-        Box::from_raw(reference_blocks as *mut [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT])
+    let reference_blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> = unsafe {
+        Box::from_raw(reference_blocks as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT])
     };
     let proof = pow::combine(
         state,
         &indices,
         &reference_indices,
-        &parent_blocks,
-        &reference_blocks,
+        &from_fn(|i| &parent_blocks[i]),
+        &from_fn(|i| &reference_blocks[i]),
         Printer,
     );
     PtrAndLen {
@@ -130,17 +133,19 @@ pub unsafe extern "C" fn combine(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_hash_chain(ptr: *mut u8) {
-    unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
+    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
-    unsafe { Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]) };
+    let _ = unsafe {
+        Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
+    };
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_state(ptr: *mut State<DEFAULT_HASH_LENGTH>) {
-    unsafe { Box::from_raw(ptr) };
+    let _ = unsafe { Box::from_raw(ptr) };
 }
 
 #[repr(C)]
@@ -196,15 +201,13 @@ pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
     Printer.debug_println("alloc blocks");
-    let mut vec = Vec::<u8>::with_capacity(DEFAULT_STEP_COUNT * DEFAULT_BLOCK_SIZE);
-    let ptr = vec.as_mut_ptr();
-    core::mem::forget(vec);
-    ptr
+    let blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> =
+        Box::new([[0u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]);
+    Box::into_raw(blocks) as *mut u8
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_blocks(ptr: *mut u8) -> *mut u8 {
+pub unsafe extern "C" fn free_blocks(ptr: *mut u8) {
     Printer.debug_println("free blocks");
-    unsafe { Vec::from_raw_parts(ptr, 0, DEFAULT_STEP_COUNT * DEFAULT_BLOCK_SIZE) };
-    ptr
+    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
 }

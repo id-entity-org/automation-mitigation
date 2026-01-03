@@ -153,4 +153,4 @@ const proof=nonce=>{
 // const combineChains=(chain1,chain2)=>{
 //   const res=wasm.combine_chains(chain1.byteOffset,chain2.byteOffset);
 // };
-export{generateChain,freeChain};
+export{proof};
