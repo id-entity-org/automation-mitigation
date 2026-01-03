@@ -1,5 +1,6 @@
 use pow::{
-    Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_HASH_LENGTH,
+    Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT,
+    DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
 };
 
 #[link(wasm_import_module = "js")]
@@ -24,6 +25,7 @@ impl Printer {
     }
 }
 
+/// Generates a chain of blocks.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *const u8 {
     Printer.debug_println("cast nonce to &[u8; 16]");
@@ -38,6 +40,7 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *cons
     Box::into_raw(chain) as *const u8
 }
 
+/// Returns the hashes of the blocks (converts a slice of blocks to an array of hashes).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
@@ -54,32 +57,80 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     Box::into_raw(hash_chain) as *mut u8
 }
 
+/// Converts the two arrays of hashes into the state (a merkle tree of the combination).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn build_state(
-    chain1_ptr: *const u8,
-    chain2_ptr: *const u8,
+    chain1_ptr: *mut u8,
+    chain2_ptr: *mut u8,
 ) -> *mut State<DEFAULT_HASH_LENGTH> {
-    let state = pow::build_state(&[
-        unsafe {
-            std::slice::from_raw_parts(
-                chain1_ptr as *const [u8; DEFAULT_HASH_LENGTH],
-                DEFAULT_CHAIN_BLOCK_COUNT,
-            )
-            .try_into()
-            .inspect_err(|err| Printer.error_println(&format!("{err}")))
-            .unwrap()
-        },
-        unsafe {
-            std::slice::from_raw_parts(
-                chain2_ptr as *const [u8; DEFAULT_HASH_LENGTH],
-                DEFAULT_CHAIN_BLOCK_COUNT,
-            )
-            .try_into()
-            .inspect_err(|err| Printer.error_println(&format!("{err}")))
-            .unwrap()
-        },
-    ]);
+    let chain1 = unsafe {
+        Box::from_raw(chain1_ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+    };
+    let chain2 = unsafe {
+        Box::from_raw(chain2_ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+    };
+    let state = pow::build_state(&[&chain1, &chain2]);
     Box::into_raw(state)
+}
+
+/// Returns the proof of work indices from (a reference of) the state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn select_indices(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut usize {
+    let indices = pow::select_indices(unsafe { &*state });
+    Box::into_raw(indices) as *mut usize
+}
+
+/// Returns the proof of work reference indices from (a reference of) the indices
+/// and (references of) the parent blocks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn select_reference_indices(
+    indices: *const usize,
+    parent_blocks: *const usize,
+) -> *mut usize {
+    let reference_indices = pow::select_reference_indices(
+        unsafe { &*(indices as *const [usize; DEFAULT_STEP_COUNT]) },
+        unsafe { &*(parent_blocks as *const [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT]) },
+    );
+    Box::into_raw(reference_indices) as *mut usize
+}
+
+/// Returns the proof of work from the state (consumed), the indices (consumed),
+/// the reference indices (consumed), the parent blocks (consumed) and the reference blocks (consumed)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn combine(
+    state: *mut State<DEFAULT_HASH_LENGTH>,
+    indices: *mut usize,
+    reference_indices: *mut usize,
+    parent_blocks: *mut usize,
+    reference_blocks: *mut usize,
+) -> PtrAndLen {
+    let state = unsafe { Box::from_raw(state) };
+    let indices = unsafe { Box::from_raw(indices as *mut [usize; DEFAULT_STEP_COUNT]) };
+    let reference_indices =
+        unsafe { Box::from_raw(reference_indices as *mut [usize; DEFAULT_STEP_COUNT]) };
+    let parent_blocks = unsafe {
+        Box::from_raw(parent_blocks as *mut [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT])
+    };
+    let reference_blocks = unsafe {
+        Box::from_raw(reference_blocks as *mut [&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT])
+    };
+    let proof = pow::combine(
+        state,
+        &indices,
+        &reference_indices,
+        &parent_blocks,
+        &reference_blocks,
+        Printer,
+    );
+    PtrAndLen {
+        len: proof.len(),
+        ptr: Box::into_raw(proof) as *mut u8,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_hash_chain(ptr: *mut u8) {
+    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
 }
 
 #[unsafe(no_mangle)]
@@ -96,10 +147,11 @@ pub unsafe extern "C" fn free_state(ptr: *mut State<DEFAULT_HASH_LENGTH>) {
 
 #[repr(C)]
 pub struct PtrAndLen {
-    ptr: *const u8,
+    ptr: *mut u8,
     len: usize,
 }
 
+// Combines the two chains to produce the proof of work.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *const u8) -> PtrAndLen {
     let chain1: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
@@ -124,7 +176,7 @@ pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *cons
     let proof = pow::combine_chains(&chains, Printer);
     PtrAndLen {
         len: proof.len(),
-        ptr: Box::into_raw(proof) as *const u8,
+        ptr: Box::into_raw(proof) as *mut u8,
     }
 }
 

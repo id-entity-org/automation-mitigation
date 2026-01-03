@@ -120,6 +120,13 @@ mod generate {
         DefaultGenerator::generate_allocated_chain(i, nonce, blocks, printer)
     }
 
+    pub fn combine_chains(
+        chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
+        printer: impl DebugPrinter,
+    ) -> Box<[u8]> {
+        DefaultGenerator::combine_chains(chains, printer)
+    }
+
     pub fn hash_chain(
         chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
     ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> {
@@ -130,14 +137,36 @@ mod generate {
         hash_chains: &[&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT];
              DEFAULT_CHAIN_COUNT],
     ) -> Box<State<DEFAULT_HASH_LENGTH>> {
-        Box::new(DefaultGenerator::build_state(hash_chains))
+        DefaultGenerator::build_state(hash_chains)
     }
 
-    pub fn combine_chains(
-        chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
+    pub fn select_indices(state: &State<DEFAULT_HASH_LENGTH>) -> Box<[usize; DEFAULT_STEP_COUNT]> {
+        DefaultGenerator::select_indices(state)
+    }
+
+    pub fn select_reference_indices(
+        indices: &[usize; DEFAULT_STEP_COUNT],
+        parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
+    ) -> Box<[usize; DEFAULT_STEP_COUNT]> {
+        DefaultGenerator::select_reference_indices(indices, parent_blocks)
+    }
+
+    pub fn combine(
+        state: Box<State<DEFAULT_HASH_LENGTH>>,
+        indices: &[usize; DEFAULT_STEP_COUNT],
+        reference_indices: &[usize; DEFAULT_STEP_COUNT],
+        parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
+        reference_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
-        DefaultGenerator::combine_chains(chains, printer)
+        DefaultGenerator::combine(
+            state,
+            indices,
+            reference_indices,
+            parent_blocks,
+            reference_blocks,
+            printer,
+        )
     }
 }
 

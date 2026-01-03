@@ -135,7 +135,7 @@ where
 
     pub fn build_state(
         hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
-    ) -> State<HASH_LENGTH> {
+    ) -> Box<State<HASH_LENGTH>> {
         let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         let mut cursor = leaves.as_mut_ptr();
         for chain in hash_chains.iter() {
@@ -149,7 +149,7 @@ where
         unsafe {
             leaves.set_len(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         }
-        State(MerkleTree::from_leaves(&leaves))
+        Box::new(State(MerkleTree::from_leaves(&leaves)))
     }
     pub fn select_indices(state: &State<HASH_LENGTH>) -> Box<[usize; STEP_COUNT]> {
         let root = state.0.root().unwrap();
@@ -175,7 +175,7 @@ where
     }
 
     pub fn combine(
-        state: State<HASH_LENGTH>,
+        state: Box<State<HASH_LENGTH>>,
         indices: &[usize; STEP_COUNT],
         reference_indices: &[usize; STEP_COUNT],
         parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
