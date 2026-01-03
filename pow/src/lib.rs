@@ -1,7 +1,7 @@
 extern crate rs_merkle;
 
 pub const DEFAULT_BLOCK_SIZE: usize = 256;
-pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 512_288;
+pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 524_288;
 pub const DEFAULT_CHAIN_COUNT: usize = 2;
 pub const DEFAULT_STEP_COUNT: usize = 10;
 pub const DEFAULT_ITERATION_COUNT: usize = 8;

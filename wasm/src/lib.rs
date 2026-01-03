@@ -27,7 +27,7 @@ impl Printer {
 
 /// Generates a chain of blocks.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *const u8 {
+pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut u8 {
     Printer.debug_println("cast nonce to &[u8; 16]");
     let nonce: &[u8; 16] = unsafe {
         std::slice::from_raw_parts(nonce_ptr, 16)
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *cons
     };
     Printer.debug_println("generate chain");
     let chain = pow::generate_chain(i, nonce, Printer);
-    Box::into_raw(chain) as *const u8
+    Box::into_raw(chain) as *mut u8
 }
 
 /// Returns the hashes of the blocks (converts a slice of blocks to an array of hashes).
@@ -130,19 +130,17 @@ pub unsafe extern "C" fn combine(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_hash_chain(ptr: *mut u8) {
-    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
+    unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
-    let _ = unsafe {
-        Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
-    };
+    unsafe { Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]) };
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_state(ptr: *mut State<DEFAULT_HASH_LENGTH>) {
-    let _ = unsafe { Box::from_raw(ptr) };
+    unsafe { Box::from_raw(ptr) };
 }
 
 #[repr(C)]
@@ -181,16 +179,32 @@ pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *cons
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn malloc(size: usize) -> *mut u8 {
-    Printer.debug_println("malloc");
-    let mut vec = Vec::<u8>::with_capacity(size);
+pub unsafe extern "C" fn alloc_nonce() -> *mut u8 {
+    Printer.debug_println("alloc monce");
+    let mut vec = Vec::<u8>::with_capacity(16);
     let ptr = vec.as_mut_ptr();
     core::mem::forget(vec);
     ptr
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free(ptr: *mut u8, len: usize) {
-    Printer.debug_println("free");
-    let _ = unsafe { Box::from_raw(std::slice::from_raw_parts_mut(ptr, len)) };
+pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
+    Printer.debug_println("free nonce");
+    unsafe { Vec::from_raw_parts(ptr, 0, 16) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
+    Printer.debug_println("alloc blocks");
+    let mut vec = Vec::<u8>::with_capacity(DEFAULT_STEP_COUNT * DEFAULT_BLOCK_SIZE);
+    let ptr = vec.as_mut_ptr();
+    core::mem::forget(vec);
+    ptr
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_blocks(ptr: *mut u8) -> *mut u8 {
+    Printer.debug_println("free blocks");
+    unsafe { Vec::from_raw_parts(ptr, 0, DEFAULT_STEP_COUNT * DEFAULT_BLOCK_SIZE) };
+    ptr
 }
