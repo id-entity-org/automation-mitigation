@@ -190,11 +190,11 @@ where
         printer.debug_println(&format!(
             "proof: {STEP_COUNT} steps, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}."
         ));
-        let mut output = Vec::with_capacity(Self::ESTIMATED_FULL_PROOF_BYTE_COUNT);
         let tree = state.0;
         let root = tree.root().unwrap();
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("root: {:x}", Hex(&root)));
+        let mut output = Vec::with_capacity(Self::ESTIMATED_FULL_PROOF_BYTE_COUNT);
         output.extend_from_slice(&root);
         for i in 0..STEP_COUNT {
             #[cfg(feature = "debug")]

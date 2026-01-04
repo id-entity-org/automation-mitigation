@@ -274,7 +274,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "87e5553bc265934836166ec437ea6610fd6b181c61e718a2f9e2dd7384b19614",
+            "e7e9e62c96ab862d1fd401d9e941ad244b0d9b7b75e05d813b3e45218a083dc7",
             hash
         );
         DefaultGenerator::generate_allocated_chain(1, &nonce, blocks, StdDebugPrinter);
@@ -284,7 +284,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "a6d7693664ada95ce9e8aed7a0d20c9ec73363bb021997a5e15b52e2122d0e3c",
+            "3a527fd2a07faf360d1e3292e683e2c5f573533aa5facbf48519865070331202",
             hash
         );
         let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter);
@@ -300,7 +300,7 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "87e5553bc265934836166ec437ea6610fd6b181c61e718a2f9e2dd7384b19614",
+            "e7e9e62c96ab862d1fd401d9e941ad244b0d9b7b75e05d813b3e45218a083dc7",
             hash
         );
         let chain = Box::into_raw(chain2) as *mut u8;
@@ -313,13 +313,13 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "a6d7693664ada95ce9e8aed7a0d20c9ec73363bb021997a5e15b52e2122d0e3c",
+            "3a527fd2a07faf360d1e3292e683e2c5f573533aa5facbf48519865070331202",
             hash
         );
         let hash = Sha256::default().chain_update(proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "f18ad3dc94e5ec3ba8bba9aaf18081e532cd5a4b51d8eb297bf6db62a2e2772a",
+            "74fadde9b21ac7dc6b8978cbe425cc2eca6a78117ef426cf77d915e1192c08da",
             hash
         );
     }
@@ -331,7 +331,7 @@ mod tests {
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "a94d036b06199365c9aa2930807e74b4538c4f10cd89838989f44ca9a435f453",
+            "5d2ca36b69fc996a3c16f088dfc0762ce9609adef811a0dce09ab308a9dd6d8c",
             hash
         );
         let verified = verify_proof(&nonce, &proof);
@@ -349,7 +349,7 @@ mod tests {
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "a94d036b06199365c9aa2930807e74b4538c4f10cd89838989f44ca9a435f453",
+            "5d2ca36b69fc996a3c16f088dfc0762ce9609adef811a0dce09ab308a9dd6d8c",
             hash
         );
         let verified = verify_proof(&nonce, &proof);

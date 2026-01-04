@@ -147,6 +147,7 @@ const proof=nonce=>{
   const referenceBlockArrayPtr=combineBlocks(r1,getBlocks(chain1Ptr,r1),r2,getBlocks(chain2Ptr,r2));
   freeChain(chain1Ptr);
   freeChain(chain2Ptr);
+  console.log(`memory pages: ${wasm.memory.buffer.byteLength/65536}`);
   return buildProof(statePtr,indicesPtr,reference_indices_pointer,parentBlockArrayPtr,referenceBlockArrayPtr);
 };
 
