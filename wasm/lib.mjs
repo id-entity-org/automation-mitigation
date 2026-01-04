@@ -152,13 +152,18 @@ const proof=async(nonce)=>{
   const hashChain1Ptr=hashChain(chain1Ptr);
   const hashChain2Ptr=hashChain(chain2Ptr);
   const statePtr=buildState(hashChain1Ptr,hashChain2Ptr);
-  const {indices_pointer:indicesPtr,chain1:i1,chain2:i2}=selectIndices(statePtr);
+  const rootPtr=wasm.root(statePtr);
+
+  const root = new Uint8Array(wasm.memory.buffer,rootPtr,16);
+  console.log(`root: 0x${root.toHex()}`);
+
+  const {indices_pointer:indicesPtr,chain1:i1,chain2:i2}=selectIndices(rootPtr);
+  new Uint16Array(wasm.memory.buffer,indicesPtr,STEP_COUNT).forEach((index,i)=>console.log(`index ${i+1}: ${index}`));
+
   const parentBlockArrayPtr=combineBlocks(i1,getBlocks(chain1Ptr,i1),i2,getBlocks(chain2Ptr,i2));
   const {reference_indices_pointer:referenceIndicesPtr,chain1:r1,chain2:r2}=selectReferenceIndices(indicesPtr,parentBlockArrayPtr);
   const referenceBlockArrayPtr=combineBlocks(r1,getBlocks(chain1Ptr,r1),r2,getBlocks(chain2Ptr,r2));
 
-  const rootPtr = wasm.root(statePtr);
-  const root = new Uint8Array(wasm.memory.buffer,rootPtr,16);
   const chain1=new Uint8Array(wasm.memory.buffer,chain1Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
   console.log(`chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain1)).toHex()}`);
   const chain2=new Uint8Array(wasm.memory.buffer,chain1Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
@@ -167,7 +172,6 @@ const proof=async(nonce)=>{
   console.log(`hash chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain1)).toHex()}`);
   const hashChain2=new Uint8Array(wasm.memory.buffer,hashChain2Ptr,CHAIN_BLOCK_COUNT*16);
   console.log(`hash chain2: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain2)).toHex()}`);
-  console.log(`root: 0x${root.toHex()}`);
 
   const indices=new Uint16Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
   const referenceIndices=new Uint16Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);

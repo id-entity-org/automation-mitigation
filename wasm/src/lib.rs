@@ -96,8 +96,10 @@ pub unsafe extern "C" fn root(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut 
 
 /// Returns the proof of work indices from (a reference of) the state.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn select_indices(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut usize {
-    let indices = pow::select_indices(unsafe { &*state });
+pub unsafe extern "C" fn select_indices(root: *const u8) -> *mut usize {
+    let indices = pow::select_indices(
+        unsafe { Box::from_raw(root as *mut [u8; DEFAULT_HASH_LENGTH]) }.as_ref(),
+    );
     Box::into_raw(indices) as *mut usize
 }
 

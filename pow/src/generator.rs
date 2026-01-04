@@ -163,10 +163,9 @@ where
         }
         Box::new(State(MerkleTree::from_leaves(&leaves)))
     }
-    pub fn select_indices(state: &State<HASH_LENGTH>) -> Box<[usize; STEP_COUNT]> {
-        let root = state.0.root().unwrap();
+    pub fn select_indices(root: &[u8; HASH_LENGTH]) -> Box<[usize; STEP_COUNT]> {
         Box::new(from_fn(|i| {
-            challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i)
+            challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(root, i)
         }))
     }
 
@@ -259,7 +258,8 @@ where
     ) -> Box<[u8]> {
         let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
         let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()));
-        let indices = Self::select_indices(&state);
+        let root = state.root();
+        let indices = Self::select_indices(&root);
         let parent_blocks = Box::new(from_fn(|i| {
             let index = indices[i] - 1;
             &chains[index / CHAIN_BLOCK_COUNT][index % CHAIN_BLOCK_COUNT]

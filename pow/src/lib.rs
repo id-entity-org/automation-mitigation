@@ -145,8 +145,8 @@ mod generate {
         DefaultGenerator::build_state(hash_chains)
     }
 
-    pub fn select_indices(state: &State<DEFAULT_HASH_LENGTH>) -> Box<[usize; DEFAULT_STEP_COUNT]> {
-        DefaultGenerator::select_indices(state)
+    pub fn select_indices(root: &[u8; DEFAULT_HASH_LENGTH]) -> Box<[usize; DEFAULT_STEP_COUNT]> {
+        DefaultGenerator::select_indices(root)
     }
 
     pub fn root(state: &State<DEFAULT_HASH_LENGTH>) -> Box<[u8; DEFAULT_HASH_LENGTH]> {
@@ -261,6 +261,23 @@ mod tests {
     impl DebugPrinter for NoDebugPrinter {
         #[inline(always)]
         fn debug_println(&self, _message: &str) {}
+    }
+
+    #[test]
+    fn test_select_indices() {
+        let root = 0x920eb8ea58ee2654f6363b99e7da4e62_u128.to_be_bytes();
+        let indices = DefaultGenerator::select_indices(&root);
+        assert_eq!(indices.len(), DEFAULT_STEP_COUNT);
+        assert_eq!(indices[0], 116496);
+        assert_eq!(indices[1], 678637);
+        assert_eq!(indices[2], 923405);
+        assert_eq!(indices[3], 59170);
+        assert_eq!(indices[4], 319063);
+        assert_eq!(indices[5], 958704);
+        assert_eq!(indices[6], 162644);
+        assert_eq!(indices[7], 1001015);
+        assert_eq!(indices[8], 119336);
+        assert_eq!(indices[9], 980930);
     }
 
     #[test]
