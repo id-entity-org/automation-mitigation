@@ -12,6 +12,18 @@ use std::ptr::copy_nonoverlapping;
 
 pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
 
+impl<const HASH_LENGTH: usize> State<HASH_LENGTH> {
+    pub fn root(&self) -> Box<[u8; HASH_LENGTH]> {
+        self.0
+            .root()
+            .unwrap()
+            .to_vec()
+            .into_boxed_slice()
+            .try_into()
+            .unwrap()
+    }
+}
+
 impl<
     const CHAIN_COUNT: usize,
     const STEP_COUNT: usize,

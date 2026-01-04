@@ -26,6 +26,19 @@ impl Printer {
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hash(ptr: *const u8, len: usize) -> *mut u8 {
+    let payload = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let hash = pow::hash(payload);
+    Box::into_raw(Box::new(hash)) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_hash(ptr: *mut u8) {
+    Printer.debug_println("free blocks");
+    let _ = unsafe { Box::from_raw(ptr as *mut [u8; DEFAULT_HASH_LENGTH]) };
+}
+
 /// Generates a chain of blocks.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut u8 {
@@ -72,6 +85,13 @@ pub unsafe extern "C" fn build_state(
     };
     let state = pow::build_state(&[&chain1, &chain2]);
     Box::into_raw(state)
+}
+
+/// Returns the root of the merkle tree.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn root(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut u8 {
+    let root = pow::root(unsafe { &*state });
+    Box::into_raw(root) as *mut u8
 }
 
 /// Returns the proof of work indices from (a reference of) the state.

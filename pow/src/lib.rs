@@ -51,7 +51,7 @@ pub(crate) mod chains;
 pub(crate) mod hasher;
 
 #[cfg(any(test, feature = "debug"))]
-pub(crate) mod hex;
+pub mod hex;
 
 pub trait DebugPrinter: Copy {
     #[inline(always)]
@@ -82,7 +82,12 @@ mod generate {
     use super::*;
     pub use crate::chains::*;
     pub use crate::generator::State;
+    use rs_merkle::Hasher;
     use std::mem::MaybeUninit;
+
+    pub fn hash(payload: &[u8]) -> [u8; DEFAULT_HASH_LENGTH] {
+        MerkleHasher::<DEFAULT_HASH_LENGTH>::hash(payload)
+    }
 
     pub fn generate_proof(nonce: &Nonce, printer: impl DebugPrinter) -> Box<[u8]> {
         let chains = DefaultGenerator::generate_chains(nonce, printer);
@@ -142,6 +147,10 @@ mod generate {
 
     pub fn select_indices(state: &State<DEFAULT_HASH_LENGTH>) -> Box<[usize; DEFAULT_STEP_COUNT]> {
         DefaultGenerator::select_indices(state)
+    }
+
+    pub fn root(state: &State<DEFAULT_HASH_LENGTH>) -> Box<[u8; DEFAULT_HASH_LENGTH]> {
+        state.root()
     }
 
     pub fn select_reference_indices(
