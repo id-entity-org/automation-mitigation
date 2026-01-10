@@ -18,6 +18,7 @@ const CHAIN_BLOCK_COUNT=524_288;
 /** @typedef {Uint8Array} Block */
 /** @typedef {number} BlockPointer */
 /** @typedef {number} BlockArrayPointer */
+/** @typedef {number} HashPointer */
 /**
  * Generates a chain of blocks.
  * @param {number} i (chain index: 0 or 1)
@@ -58,12 +59,13 @@ const buildState=(chain1Ptr, chain2Ptr)=>{
 };
 /**
  * Selects the proof indices from the state (merkle root).
- * @param {StatePointer} statePtr
+ * @param {HashPointer} rootPtr
  * @return {{indices_pointer:BlockIndexPointer,chain1:BlockIndex[],chain2:BlockIndex[]}}
  */
-const selectIndices=statePtr=>{
-  const indicesPtr=wasm.select_indices(statePtr);
+const selectIndices=rootPtr=>{
+  const indicesPtr=wasm.select_indices(rootPtr);
   const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
+  console.log([...indices]);
   const chainIndices=[[],[]];
   indices.forEach((index,i)=>{
     const parentIndex=index-1;
@@ -118,16 +120,19 @@ const selectReferenceIndices=(indicesPtr,parent_blocks_ptr)=>{
  * Combines everything to build the proof.
  * This releases the memory of the state, the indices arrays, and block arrays.
  * @param {StatePointer} statePtr
+ * @param {HashPointer} rootPtr
  * @param {BlockIndexPointer} indicesPtr
  * @param {BlockIndexPointer} referenceIndicesPtr
  * @param {BlockArrayPointer} parentBlocksPtr
  * @param {BlockArrayPointer} referenceBlocksPtr
  * @return {Uint8Array} the proof
  */
-const buildProof=(statePtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr)=>{
-  let ptrAndLen=wasm.combine(statePtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
-  let [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLen,2);
-  return new Uint8Array(wasm.memory.buffer,ptr,len).slice();
+const buildProof=(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr)=>{
+  let ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
+  let [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
+  const proof = new Uint8Array(wasm.memory.buffer,ptr,len).slice();
+  wasm.free_ptr_and_len(ptrAndLenPtr);
+  return proof;
 };
 
 /**
@@ -156,9 +161,11 @@ const proof=async(nonce)=>{
 
   const root = new Uint8Array(wasm.memory.buffer,rootPtr,16);
   console.log(`root: 0x${root.toHex()}`);
+  console.log(wasm.select_index(rootPtr, 0));
+  console.log(wasm.select_index(rootPtr, 1));
 
   const {indices_pointer:indicesPtr,chain1:i1,chain2:i2}=selectIndices(rootPtr);
-  new Uint16Array(wasm.memory.buffer,indicesPtr,STEP_COUNT).forEach((index,i)=>console.log(`index ${i+1}: ${index}`));
+  new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT).forEach((index,i)=>console.log(`index ${i+1}: ${index}`));
 
   const parentBlockArrayPtr=combineBlocks(i1,getBlocks(chain1Ptr,i1),i2,getBlocks(chain2Ptr,i2));
   const {reference_indices_pointer:referenceIndicesPtr,chain1:r1,chain2:r2}=selectReferenceIndices(indicesPtr,parentBlockArrayPtr);
@@ -166,15 +173,15 @@ const proof=async(nonce)=>{
 
   const chain1=new Uint8Array(wasm.memory.buffer,chain1Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
   console.log(`chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain1)).toHex()}`);
-  const chain2=new Uint8Array(wasm.memory.buffer,chain1Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
+  const chain2=new Uint8Array(wasm.memory.buffer,chain2Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
   console.log(`chain2: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain2)).toHex()}`);
   const hashChain1=new Uint8Array(wasm.memory.buffer,hashChain1Ptr,CHAIN_BLOCK_COUNT*16);
   console.log(`hash chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain1)).toHex()}`);
   const hashChain2=new Uint8Array(wasm.memory.buffer,hashChain2Ptr,CHAIN_BLOCK_COUNT*16);
   console.log(`hash chain2: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain2)).toHex()}`);
 
-  const indices=new Uint16Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
-  const referenceIndices=new Uint16Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
+  const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
+  const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
   const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlockArrayPtr,BLOCK_SIZE*STEP_COUNT);
   const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlockArrayPtr,BLOCK_SIZE*STEP_COUNT);
   const chains=[chain1,chain2];
@@ -185,32 +192,37 @@ const proof=async(nonce)=>{
     const referenceIndex=referenceIndices[i];
     console.log(`step: ${i+1}/${STEP_COUNT}`);
     console.log(`index: ${index}`);
-    console.log(`reference index: ${parentIndex}`);
+    console.log(`reference index: ${referenceIndex}`);
     const blockChainIndices=[Math.trunc(index/CHAIN_BLOCK_COUNT),index%CHAIN_BLOCK_COUNT];
     console.log(`block chain indices: ${blockChainIndices[0]},${blockChainIndices[1]}`);
     const block=chains[blockChainIndices[0]].subarray(blockChainIndices[1]*BLOCK_SIZE,blockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
     const blockHash=hashChains[blockChainIndices[0]].subarray(blockChainIndices[1]*16,blockChainIndices[1]*16+16);
-    console.log(`block hash (from hash chain): ${blockHash.toHex()}}`);
+    console.log(`block hash (from hash chain): ${blockHash.toHex()}`);
     console.log(`block hash (from chain): ${hashHex(block)}}`);
     const parentBlockChainIndices=[Math.trunc(parentIndex/CHAIN_BLOCK_COUNT),parentIndex%CHAIN_BLOCK_COUNT];
     console.log(`parent block chain indices: ${parentBlockChainIndices[0]},${parentBlockChainIndices[1]}`);
     const parentBlock=chains[parentBlockChainIndices[0]].subarray(parentBlockChainIndices[1]*BLOCK_SIZE,parentBlockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
     const parentBlockHash=hashChains[parentBlockChainIndices[0]].subarray(parentBlockChainIndices[1]*16,parentBlockChainIndices[1]*16+16);
-    console.log(`parent block hash (from hash chain): ${parentBlockHash.toHex()}}`);
+    console.log(`parent block hash (from hash chain): ${parentBlockHash.toHex()}`);
     console.log(`parent block hash (from parent blocks): ${hashHex(parentBlocks.subarray(i*BLOCK_SIZE,i*BLOCK_SIZE+BLOCK_SIZE))}`);
     console.log(`parent block hash (from chain): ${hashHex(parentBlock)}}`);
     const referenceBlockChainIndices=[Math.trunc(referenceIndex/CHAIN_BLOCK_COUNT),referenceIndex%CHAIN_BLOCK_COUNT];
     console.log(`reference block chain indices: ${referenceBlockChainIndices[0]},${referenceBlockChainIndices[1]}`);
     const referenceBlock=chains[referenceBlockChainIndices[0]].subarray(referenceBlockChainIndices[1]*BLOCK_SIZE,referenceBlockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
     const referenceBlockHash=hashChains[referenceBlockChainIndices[0]].subarray(referenceBlockChainIndices[1]*16,referenceBlockChainIndices[1]*16+16);
-    console.log(`reference block hash (from hash chain): ${referenceBlockHash.toHex()}}`);
+    console.log(`reference block hash (from hash chain): ${referenceBlockHash.toHex()}`);
     console.log(`reference block hash (from reference blocks): ${hashHex(referenceBlocks.subarray(i*BLOCK_SIZE,i*BLOCK_SIZE+BLOCK_SIZE))}`);
     console.log(`reference block hash (from chain): ${hashHex(referenceBlock)}}`);
   }
+  const rootPtr2=wasm.root(statePtr);
+  const root2 = new Uint8Array(wasm.memory.buffer,rootPtr2,16);
+  console.log(`root: 0x${root2.toHex()}`); // still ok
   freeChain(chain1Ptr);
   freeChain(chain2Ptr);
+  freeChain(hashChain1Ptr);
+  freeChain(hashChain2Ptr);
   console.log(`memory pages: ${wasm.memory.buffer.byteLength/65536}`);
-  return buildProof(statePtr,indicesPtr,referenceIndicesPtr,parentBlockArrayPtr,referenceBlockArrayPtr);
+  return buildProof(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlockArrayPtr,referenceBlockArrayPtr);
 };
 
 // const combineChains=(chain1,chain2)=>{

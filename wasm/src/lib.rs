@@ -1,8 +1,9 @@
 use pow::{
     Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT,
-    DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
+    DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
 };
 use std::array::from_fn;
+use std::slice;
 
 #[link(wasm_import_module = "js")]
 unsafe extern "C" {
@@ -74,14 +75,14 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
 /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn build_state(
-    chain1_ptr: *mut u8,
-    chain2_ptr: *mut u8,
+    hash_chain1_ptr: *const u8,
+    hash_chain2_ptr: *const u8,
 ) -> *mut State<DEFAULT_HASH_LENGTH> {
     let chain1 = unsafe {
-        Box::from_raw(chain1_ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+        &*(hash_chain1_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
     };
     let chain2 = unsafe {
-        Box::from_raw(chain2_ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+        &*(hash_chain2_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
     };
     let state = pow::build_state(&[&chain1, &chain2]);
     Box::into_raw(state)
@@ -94,12 +95,20 @@ pub unsafe extern "C" fn root(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut 
     Box::into_raw(root) as *mut u8
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn select_index(root: *const u8, i: usize) -> usize {
+    let root = unsafe { &*(root as *const [u8; DEFAULT_HASH_LENGTH]) };
+    let index =
+        pow::index_log::<DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT>(root.as_ref(), i, Printer);
+    index
+}
+
 /// Returns the proof of work indices from (a reference of) the state.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn select_indices(root: *const u8) -> *mut usize {
-    let indices = pow::select_indices(
-        unsafe { Box::from_raw(root as *mut [u8; DEFAULT_HASH_LENGTH]) }.as_ref(),
-    );
+    let root = unsafe { &*(root as *const [u8; DEFAULT_HASH_LENGTH]) };
+    let indices = pow::select_indices(&root);
+    Printer.debug_println(&format!("select indices: {indices:?}"));
     Box::into_raw(indices) as *mut usize
 }
 
@@ -124,12 +133,14 @@ pub unsafe extern "C" fn select_reference_indices(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn combine(
     state: *mut State<DEFAULT_HASH_LENGTH>,
+    root: *mut u8,
     indices: *mut usize,
     reference_indices: *mut usize,
     parent_blocks: *mut u8,
     reference_blocks: *mut u8,
-) -> PtrAndLen {
+) -> Box<[u8; 8]> {
     let state = unsafe { Box::from_raw(state) };
+    let root = unsafe { Box::from_raw(root as *mut [u8; DEFAULT_HASH_LENGTH]) };
     let indices = unsafe { Box::from_raw(indices as *mut [usize; DEFAULT_STEP_COUNT]) };
     let reference_indices =
         unsafe { Box::from_raw(reference_indices as *mut [usize; DEFAULT_STEP_COUNT]) };
@@ -141,16 +152,19 @@ pub unsafe extern "C" fn combine(
     };
     let proof = pow::combine(
         state,
+        &root,
         &indices,
         &reference_indices,
         &from_fn(|i| &parent_blocks[i]),
         &from_fn(|i| &reference_blocks[i]),
         Printer,
     );
-    PtrAndLen {
-        len: proof.len(),
-        ptr: Box::into_raw(proof) as *mut u8,
-    }
+    let len = proof.len();
+    let ptr = Box::into_raw(proof) as *mut u8;
+    let mut ptr_and_len = Vec::with_capacity(8);
+    ptr_and_len.extend_from_slice(&(ptr as u32).to_le_bytes());
+    ptr_and_len.extend_from_slice(&(len as u32).to_le_bytes());
+    unsafe { Box::from_raw(Box::into_raw(ptr_and_len.into_boxed_slice()) as *mut [u8; 8]) }
 }
 
 #[unsafe(no_mangle)]
@@ -170,15 +184,12 @@ pub unsafe extern "C" fn free_state(ptr: *mut State<DEFAULT_HASH_LENGTH>) {
     let _ = unsafe { Box::from_raw(ptr) };
 }
 
-#[repr(C)]
-pub struct PtrAndLen {
-    ptr: *mut u8,
-    len: usize,
-}
-
 // Combines the two chains to produce the proof of work.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *const u8) -> PtrAndLen {
+pub unsafe extern "C" fn combine_chains(
+    chain1_ptr: *const u8,
+    chain2_ptr: *const u8,
+) -> Box<[u8; 8]> {
     let chain1: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
         std::slice::from_raw_parts(
             chain1_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
@@ -199,10 +210,12 @@ pub unsafe extern "C" fn combine_chains(chain1_ptr: *const u8, chain2_ptr: *cons
     };
     let chains = [chain1, chain2];
     let proof = pow::combine_chains(&chains, Printer);
-    PtrAndLen {
-        len: proof.len(),
-        ptr: Box::into_raw(proof) as *mut u8,
-    }
+    let len = proof.len();
+    let ptr = Box::into_raw(proof) as *mut u8;
+    let mut ptr_and_len = Vec::with_capacity(8);
+    ptr_and_len.extend_from_slice(&(ptr as u32).to_le_bytes());
+    ptr_and_len.extend_from_slice(&(len as u32).to_le_bytes());
+    unsafe { Box::from_raw(Box::into_raw(ptr_and_len.into_boxed_slice()) as *mut [u8; 8]) }
 }
 
 #[unsafe(no_mangle)]
@@ -232,4 +245,13 @@ pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
 pub unsafe extern "C" fn free_blocks(ptr: *mut u8) {
     Printer.debug_println("free blocks");
     let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_ptr_and_len(ptr: *mut u8) {
+    Printer.debug_println("free ptr and len");
+    let ptr_and_len = unsafe { Box::from_raw(ptr as *mut [u8; 8]) };
+    let ptr = u32::from_le_bytes(ptr_and_len[0..4].try_into().unwrap());
+    let len = u32::from_le_bytes(ptr_and_len[4..8].try_into().unwrap());
+    let _ = unsafe { Box::from_raw(slice::from_raw_parts_mut(ptr as *mut u8, len as usize)) };
 }

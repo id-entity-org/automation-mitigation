@@ -162,6 +162,7 @@ mod generate {
 
     pub fn combine(
         state: Box<State<DEFAULT_HASH_LENGTH>>,
+        root: &[u8; DEFAULT_HASH_LENGTH],
         indices: &[usize; DEFAULT_STEP_COUNT],
         reference_indices: &[usize; DEFAULT_STEP_COUNT],
         parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
@@ -170,6 +171,7 @@ mod generate {
     ) -> Box<[u8]> {
         DefaultGenerator::combine(
             state,
+            root,
             indices,
             reference_indices,
             parent_blocks,
@@ -195,6 +197,7 @@ mod verify {
 }
 
 use crate::hasher::MerkleHasher;
+use crate::hex::Hex;
 #[cfg(feature = "verify")]
 pub use verify::*;
 
@@ -220,6 +223,26 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
     let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
     let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
     let offset = chain * CHAIN_BLOCK_COUNT;
+    (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
+}
+
+pub fn index_log<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT: usize>(
+    merkle_root: &[u8],
+    i: usize,
+    printer: impl DebugPrinter,
+) -> usize {
+    printer.debug_println(&format!("root: {:x}", Hex(merkle_root)));
+    let hash: [u8; 16] = MerkleHasher::<16>::hash_with_custom_domain(
+        merkle_root,
+        (i as u64).to_le_bytes().as_slice(),
+    );
+    printer.debug_println(&format!("hash with custom domain: {:x}", Hex(&hash)));
+    let seed = u64::from_le_bytes(hash[..8].try_into().unwrap()) as u128;
+    let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
+    let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
+    printer.debug_println(&format!("chain: {chain}"));
+    let offset = chain * CHAIN_BLOCK_COUNT;
+    printer.debug_println(&format!("offset: {offset}"));
     (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
 }
 
