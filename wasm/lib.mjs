@@ -1,231 +1,184 @@
 // preload
 const url=new URL('lib.wasm',import.meta.url);
 await(await fetch(url)).arrayBuffer();
-let wasm;
-const{instance}=await WebAssembly.instantiateStreaming(fetch(url,{cache:'force-cache'}),{js:{
-  println:(ptr,len)=>console.log(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
-  eprintln:(ptr,len)=>console.error(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
-}});
-wasm=instance.exports;
-const STEP_COUNT=10;
-const BLOCK_SIZE=256;
-const CHAIN_BLOCK_COUNT=524_288;
-/** @typedef {number} ChainPointer */
-/** @typedef {number} HashChainPointer */
-/** @typedef {number} StatePointer */
-/** @typedef {number} BlockIndexPointer */
-/** @typedef {{i:number,chain_index:number}} BlockIndex */
-/** @typedef {Uint8Array} Block */
-/** @typedef {number} BlockPointer */
-/** @typedef {number} BlockArrayPointer */
-/** @typedef {number} HashPointer */
+const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGlobalScope;
 /**
- * Generates a chain of blocks.
- * @param {number} i (chain index: 0 or 1)
- * @param {Uint8Array} nonce (length 16)
- * @return {ChainPointer} a pointer to the computed chain of blocks.
- */
-const generateChain=(i,nonce)=>{
-  const noncePtr=wasm.alloc_nonce();
-  new Uint8Array(wasm.memory.buffer,noncePtr,16).set(nonce);
-  const chainPtr=wasm.generate_chain(i,noncePtr);
-  wasm.free_nonce(noncePtr, 16);
-  return chainPtr;
-};
-/**
- * Releases the memory of the chain of blocks.
- * @param {ChainPointer} chainPtr
- */
-const freeChain=chainPtr=>{
-  wasm.free_chain(chainPtr);
-};
-/**
- * Computes the list of hashes for a chain of blocks.
- * @param {ChainPointer} chainPtr
- * @return {HashChainPointer} a pointer to the computed hashes (same length as the chain).
- */
-const hashChain=chainPtr=>{
-  return wasm.hash_chain(chainPtr);
-};
-/**
- * Creates the state (merkle tree) from the combination of the two hash chains.
- * It also releases the memory of the two hash chains.
- * @param {HashChainPointer} chain1Ptr
- * @param {HashChainPointer} chain2Ptr
- * @return {StatePointer} a pointer to the computed state.
- */
-const buildState=(chain1Ptr, chain2Ptr)=>{
-  return wasm.build_state(chain1Ptr,chain2Ptr);
-};
-/**
- * Selects the proof indices from the state (merkle root).
- * @param {HashPointer} rootPtr
- * @return {{indices_pointer:BlockIndexPointer,chain1:BlockIndex[],chain2:BlockIndex[]}}
- */
-const selectIndices=rootPtr=>{
-  const indicesPtr=wasm.select_indices(rootPtr);
-  const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
-  console.log([...indices]);
-  const chainIndices=[[],[]];
-  indices.forEach((index,i)=>{
-    const parentIndex=index-1;
-    chainIndices[Math.trunc(parentIndex/CHAIN_BLOCK_COUNT)].push({i,chain_index:parentIndex%CHAIN_BLOCK_COUNT})
-  });
-  const [chain1,chain2]=chainIndices;
-  return {indices_pointer:indicesPtr,chain1,chain2};
-};
-/**
- * Gets the blocks from the chain at the specified indices.
- * @param {ChainPointer} chainPtr
- * @param {BlockIndex[]} blockIndices
- * @return {Block[]} an array of blocks (same length as blockIndices)
- */
-const getBlocks=(chainPtr,blockIndices)=>{
-  return blockIndices.map(({chain_index:i})=>{
-    return new Uint8Array(wasm.memory.buffer,chainPtr+i*BLOCK_SIZE,BLOCK_SIZE).slice();
-  });
-};
-/**
- * Combines the blocks of the two chains.
- * @param {BlockIndex[]} indices1
- * @param {Block[]} blocks1
- * @param {BlockIndex[]} indices2
- * @param {Block[]} blocks2
- * @return {BlockArrayPointer} a pointer to an array of STEP_COUNT blocks (length STEP_COUNT * BLOCK_SIZE)
- */
-const combineBlocks=(indices1,blocks1,indices2,blocks2)=>{
-  const blockArrayPointer=wasm.alloc_blocks();
-  const blockArray=new Uint8Array(wasm.memory.buffer,blockArrayPointer,STEP_COUNT*BLOCK_SIZE);
-  indices1.forEach(({i},index)=>blockArray.set(blocks1[index],i*BLOCK_SIZE));
-  indices2.forEach(({i},index)=>blockArray.set(blocks2[index],i*BLOCK_SIZE));
-  return blockArrayPointer;
-};
-/**
- * Selects the proof reference indices for the specified block indices and parent blocks.
- * @param {BlockIndexPointer} indicesPtr
- * @param {BlockArrayPointer} parent_blocks_ptr
- * @return {{reference_indices_pointer:BlockIndexPointer,chain1:BlockIndex[],chain2:BlockIndex[]}}
- */
-const selectReferenceIndices=(indicesPtr,parent_blocks_ptr)=>{
-  const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr, parent_blocks_ptr);
-  const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
-  const chainIndices=[[],[]];
-  referenceIndices.forEach((index,i)=>{
-    chainIndices[Math.trunc(index/CHAIN_BLOCK_COUNT)].push({i,chain_index:index%CHAIN_BLOCK_COUNT})
-  });
-  const [chain1,chain2]=chainIndices;
-  return {reference_indices_pointer:referenceIndicesPtr,chain1,chain2};
-};
-/**
- * Combines everything to build the proof.
- * This releases the memory of the state, the indices arrays, and block arrays.
- * @param {StatePointer} statePtr
- * @param {HashPointer} rootPtr
- * @param {BlockIndexPointer} indicesPtr
- * @param {BlockIndexPointer} referenceIndicesPtr
- * @param {BlockArrayPointer} parentBlocksPtr
- * @param {BlockArrayPointer} referenceBlocksPtr
- * @return {Uint8Array} the proof
- */
-const buildProof=(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr)=>{
-  let ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
-  let [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
-  const proof = new Uint8Array(wasm.memory.buffer,ptr,len).slice();
-  wasm.free_ptr_and_len(ptrAndLenPtr);
-  return proof;
-};
-
-/**
- * @param {Uint8Array} payload
- * @return {string}
- */
-const hashHex=payload=>{
-  let ptr=wasm.hash(payload.byteOffset,payload.byteLength);
-  const hex=new Uint8Array(wasm.memory.buffer,ptr,16).toHex();
-  wasm.free_hash(ptr);
-  return hex;
-}
-
-/**
- * Everything together, without web worker for now.
  * @param {Uint8Array} nonce
- * @return {Uint8Array} the proof
+ * @param {AbortSignal} signal
+ * @return {Promise<Uint8Array>}
  */
-const proof=async(nonce)=>{
-  const chain1Ptr=generateChain(0,nonce);
-  const chain2Ptr=generateChain(1,nonce);
-  const hashChain1Ptr=hashChain(chain1Ptr);
-  const hashChain2Ptr=hashChain(chain2Ptr);
-  const statePtr=buildState(hashChain1Ptr,hashChain2Ptr);
-  const rootPtr=wasm.root(statePtr);
-
-  const root = new Uint8Array(wasm.memory.buffer,rootPtr,16);
-  console.log(`root: 0x${root.toHex()}`);
-  console.log(wasm.select_index(rootPtr, 0));
-  console.log(wasm.select_index(rootPtr, 1));
-
-  const {indices_pointer:indicesPtr,chain1:i1,chain2:i2}=selectIndices(rootPtr);
-  new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT).forEach((index,i)=>console.log(`index ${i+1}: ${index}`));
-
-  const parentBlockArrayPtr=combineBlocks(i1,getBlocks(chain1Ptr,i1),i2,getBlocks(chain2Ptr,i2));
-  const {reference_indices_pointer:referenceIndicesPtr,chain1:r1,chain2:r2}=selectReferenceIndices(indicesPtr,parentBlockArrayPtr);
-  const referenceBlockArrayPtr=combineBlocks(r1,getBlocks(chain1Ptr,r1),r2,getBlocks(chain2Ptr,r2));
-
-  const chain1=new Uint8Array(wasm.memory.buffer,chain1Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
-  console.log(`chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain1)).toHex()}`);
-  const chain2=new Uint8Array(wasm.memory.buffer,chain2Ptr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
-  console.log(`chain2: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain2)).toHex()}`);
-  const hashChain1=new Uint8Array(wasm.memory.buffer,hashChain1Ptr,CHAIN_BLOCK_COUNT*16);
-  console.log(`hash chain1: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain1)).toHex()}`);
-  const hashChain2=new Uint8Array(wasm.memory.buffer,hashChain2Ptr,CHAIN_BLOCK_COUNT*16);
-  console.log(`hash chain2: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',hashChain2)).toHex()}`);
-
-  const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
-  const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
-  const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlockArrayPtr,BLOCK_SIZE*STEP_COUNT);
-  const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlockArrayPtr,BLOCK_SIZE*STEP_COUNT);
-  const chains=[chain1,chain2];
-  const hashChains=[hashChain1,hashChain2];
-  for(let i=0;i<STEP_COUNT;++i){
-    const index=indices[i];
-    const parentIndex=index-1;
-    const referenceIndex=referenceIndices[i];
-    console.log(`step: ${i+1}/${STEP_COUNT}`);
-    console.log(`index: ${index}`);
-    console.log(`reference index: ${referenceIndex}`);
-    const blockChainIndices=[Math.trunc(index/CHAIN_BLOCK_COUNT),index%CHAIN_BLOCK_COUNT];
-    console.log(`block chain indices: ${blockChainIndices[0]},${blockChainIndices[1]}`);
-    const block=chains[blockChainIndices[0]].subarray(blockChainIndices[1]*BLOCK_SIZE,blockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
-    const blockHash=hashChains[blockChainIndices[0]].subarray(blockChainIndices[1]*16,blockChainIndices[1]*16+16);
-    console.log(`block hash (from hash chain): ${blockHash.toHex()}`);
-    console.log(`block hash (from chain): ${hashHex(block)}}`);
-    const parentBlockChainIndices=[Math.trunc(parentIndex/CHAIN_BLOCK_COUNT),parentIndex%CHAIN_BLOCK_COUNT];
-    console.log(`parent block chain indices: ${parentBlockChainIndices[0]},${parentBlockChainIndices[1]}`);
-    const parentBlock=chains[parentBlockChainIndices[0]].subarray(parentBlockChainIndices[1]*BLOCK_SIZE,parentBlockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
-    const parentBlockHash=hashChains[parentBlockChainIndices[0]].subarray(parentBlockChainIndices[1]*16,parentBlockChainIndices[1]*16+16);
-    console.log(`parent block hash (from hash chain): ${parentBlockHash.toHex()}`);
-    console.log(`parent block hash (from parent blocks): ${hashHex(parentBlocks.subarray(i*BLOCK_SIZE,i*BLOCK_SIZE+BLOCK_SIZE))}`);
-    console.log(`parent block hash (from chain): ${hashHex(parentBlock)}}`);
-    const referenceBlockChainIndices=[Math.trunc(referenceIndex/CHAIN_BLOCK_COUNT),referenceIndex%CHAIN_BLOCK_COUNT];
-    console.log(`reference block chain indices: ${referenceBlockChainIndices[0]},${referenceBlockChainIndices[1]}`);
-    const referenceBlock=chains[referenceBlockChainIndices[0]].subarray(referenceBlockChainIndices[1]*BLOCK_SIZE,referenceBlockChainIndices[1]*BLOCK_SIZE+BLOCK_SIZE);
-    const referenceBlockHash=hashChains[referenceBlockChainIndices[0]].subarray(referenceBlockChainIndices[1]*16,referenceBlockChainIndices[1]*16+16);
-    console.log(`reference block hash (from hash chain): ${referenceBlockHash.toHex()}`);
-    console.log(`reference block hash (from reference blocks): ${hashHex(referenceBlocks.subarray(i*BLOCK_SIZE,i*BLOCK_SIZE+BLOCK_SIZE))}`);
-    console.log(`reference block hash (from chain): ${hashHex(referenceBlock)}}`);
-  }
-  const rootPtr2=wasm.root(statePtr);
-  const root2 = new Uint8Array(wasm.memory.buffer,rootPtr2,16);
-  console.log(`root: 0x${root2.toHex()}`); // still ok
-  freeChain(chain1Ptr);
-  freeChain(chain2Ptr);
-  freeChain(hashChain1Ptr);
-  freeChain(hashChain2Ptr);
-  console.log(`memory pages: ${wasm.memory.buffer.byteLength/65536}`);
-  return buildProof(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlockArrayPtr,referenceBlockArrayPtr);
+const pow=async(nonce,signal)=>{
+  const random=crypto.getRandomValues(new Uint8Array(16));
+  const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',random)).toHex();
+  const worker=await new Promise((resolve,reject)=>{
+    const worker=new Worker(import.meta.url,{type:'module',credentials:'omit',name:`${hash}-0`});
+    worker.onerror=_=>reject();
+    worker.onmessage=({data})=>{
+      if(typeof data==='object'){
+        const {hash:h,ready}=data;
+        if(h===hash&&ready){
+          worker.onmessage=null;
+          resolve(worker);
+        }
+      }
+    };
+  });
+  signal.throwIfAborted();
+  return await new Promise((resolve,reject)=>{
+    if(signal.aborted) return reject();
+    worker.onerror=_=>{
+      worker.postMessage({hash,terminate:true});
+      worker.terminate();
+      reject();
+    }
+    signal.addEventListener('abort',worker.onerror);
+    worker.onmessage=({data})=>{
+      if(typeof data==='object'){
+        const {hash:h,proof}=data;
+        if(h===hash&&proof){
+          worker.terminate();
+          resolve(proof);
+        }
+      }
+    };
+    worker.postMessage({hash,nonce});
+  });
 };
-
-// const combineChains=(chain1,chain2)=>{
-//   const res=wasm.combine_chains(chain1.byteOffset,chain2.byteOffset);
-// };
-export{proof};
+export default pow;
+if(isWorker){
+  const [hash,n]=globalThis.name.split('-');
+  let wasm;
+  const{instance}=await WebAssembly.instantiateStreaming(fetch(url,{cache:'force-cache'}),{js:{
+    println:(ptr,len)=>console.log(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
+    eprintln:(ptr,len)=>console.error(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
+  }});
+  wasm=instance.exports;
+  const HASH_LENGTH=new DataView(wasm.memory.buffer,wasm.HASH_LENGTH_PTR,4).getUint32(0,true);
+  const STEP_COUNT=new DataView(wasm.memory.buffer,wasm.STEP_COUNT_PTR,4).getUint32(0,true);
+  const BLOCK_SIZE=new DataView(wasm.memory.buffer,wasm.BLOCK_SIZE_PTR,4).getUint32(0,true);
+  const CHAIN_BLOCK_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_BLOCK_COUNT_PTR,4).getUint32(0,true);
+  const CHAIN_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_COUNT_PTR,4).getUint32(0,true);
+  if(n==='0'){ // coordinator worker
+    const initWorker=i=>new Promise((resolve,reject)=>{
+      const worker=new Worker(import.meta.url,{type:'module',credentials:'omit',name:`${hash}-${i}`});
+      worker.onerror=_=>reject();
+      worker.onmessage=({data})=>{
+        if(typeof data==='object'){
+          const {hash:h,ready}=data;
+          if(h===hash&&ready){
+            worker.onmessage=null;
+            resolve(worker);
+          }
+        }
+      };
+    });
+    const workers=Promise.all(Array.from({length:CHAIN_COUNT},(_,i)=>initWorker(i+1)));
+    onmessage=async({data})=>{
+      if(typeof data==='object'){
+        const {hash:h,terminate,nonce}=data;
+        if(h===hash){
+          if(terminate){
+            (await workers).forEach(it=>it.terminate());
+            return globalThis.terminate();
+          }
+          if(nonce instanceof Uint8Array){
+            if(nonce.length!==16) throw new Error('nonce must be 16 bytes long');
+            const results=await Promise.all((await workers).map((worker,n)=>new Promise((resolve,reject)=>{
+              worker.onerror=_=>reject();
+              const channel=new MessageChannel();
+              channel.port1.onmessage=({data})=>{
+                channel.port1.onmessage=null;
+                resolve({hashChain:data,worker,channel});
+              }
+              worker.postMessage({hash,nonce,n,port:channel.port2},[channel.port2]);
+            }))).catch(onerror);
+            const hashChainsPtr=wasm.alloc_hash_chains();
+            const hashChains=new DataView(wasm.memory.buffer,hashChainsPtr,CHAIN_COUNT);
+            results.forEach(({hashChain}, i)=>{
+              const hashChainPtr=wasm.alloc_hash_chain();
+              new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
+              new DataView(wasm.memory.buffer,hashChainsPtr+i*4).setUint32(0,hashChainPtr,true);
+            });
+            const statePtr=wasm.build_state(hashChainsPtr);
+            const rootPtr=wasm.root(statePtr);
+            console.log(`root: 0x${new Uint8Array(wasm.memory.buffer,rootPtr,HASH_LENGTH).toHex()}`);
+            const indicesPtr=wasm.select_indices(rootPtr);
+            const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
+            console.log(`indices: ${indices.join(', ')}`);
+            const parentBlocksPtr=wasm.alloc_blocks();
+            const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlocksPtr,STEP_COUNT*BLOCK_SIZE);
+            for(let i=0;i<STEP_COUNT;++i){
+              const parentIndex=indices[i]-1;
+              const j=Math.trunc(parentIndex/CHAIN_BLOCK_COUNT);
+              const {worker,channel}=results[j];
+              const index=parentIndex%CHAIN_BLOCK_COUNT;
+              const block=await new Promise(resolve=>{
+                channel.port1.onmessage=({data})=>{
+                  channel.port1.onmessage=null;
+                  resolve(data);
+                }
+                worker.postMessage({hash,index});
+              });
+              parentBlocks.set(block,i*BLOCK_SIZE);
+            }
+            const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
+            const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
+            console.log(`reference indices: ${referenceIndices.join(', ')}`);
+            const referenceBlocksPtr=wasm.alloc_blocks();
+            const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlocksPtr,STEP_COUNT*BLOCK_SIZE);
+            for(let i=0;i<STEP_COUNT;++i){
+              const referenceIndex=referenceIndices[i];
+              const j=Math.trunc(referenceIndex/CHAIN_BLOCK_COUNT);
+              const {worker,channel}=results[j];
+              const index=referenceIndex%CHAIN_BLOCK_COUNT;
+              const block=await new Promise(resolve=>{
+                channel.port1.onmessage=({data})=>{
+                  channel.port1.onmessage=null;
+                  resolve(data);
+                }
+                worker.postMessage({hash,index});
+              });
+              referenceBlocks.set(block,i*BLOCK_SIZE);
+            }
+            (await workers).forEach(it=>it.terminate());
+            const ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
+            const [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
+            const proof=new Uint8Array(wasm.memory.buffer,ptr,len);
+            postMessage({hash,proof});
+          }
+        }
+      }
+    }
+  }else{ // chain worker
+    let chainPtr=undefined;
+    let port=undefined;
+    onmessage=async({data})=>{
+      if(typeof data==='object'){
+        const {hash:h,terminate,nonce,n,port:p,index}=data;
+        if(h===hash){
+          if(terminate){
+            return globalThis.terminate();
+          }
+          if(p&&nonce instanceof Uint8Array){
+            const i=parseInt(n);
+            if(nonce.length!==16||isNaN(i)||i<0||i>=CHAIN_COUNT) throw new Error();
+            port=p;
+            const noncePtr=wasm.alloc_nonce();
+            new Uint8Array(wasm.memory.buffer,noncePtr,16).set(nonce);
+            chainPtr=wasm.generate_chain(i,noncePtr);
+            const chain=new Uint8Array(wasm.memory.buffer,chainPtr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
+            console.log(`chain ${i+1}: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain)).toHex()}`);
+            wasm.free_nonce(noncePtr, 16);
+            const hashChainPtr=wasm.hash_chain(chainPtr);
+            console.log(`hash chain ${i+1}: 0x${new Uint8Array(wasm.memory.buffer,wasm.hash(hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH),HASH_LENGTH).toHex()}`);
+            const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH);
+            port.postMessage(hashChain);
+          }else if(!isNaN(index)&&index>0&&index<CHAIN_BLOCK_COUNT){
+            port.postMessage(new Uint8Array(wasm.memory.buffer,chainPtr+index*BLOCK_SIZE,BLOCK_SIZE));
+          }
+        }
+      }
+    };
+  }
+  postMessage({hash,ready:true});
+}

@@ -9,6 +9,7 @@ use std::array::from_fn;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
+use std::slice::from_raw_parts;
 
 pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
 
@@ -147,10 +148,19 @@ where
 
     pub fn build_state(
         hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        printer: impl DebugPrinter,
     ) -> Box<State<HASH_LENGTH>> {
         let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         let mut cursor = leaves.as_mut_ptr();
-        for chain in hash_chains.iter() {
+        for (i, chain) in hash_chains.iter().enumerate() {
+            #[cfg(feature = "debug")]
+            printer.debug_println(&format!(
+                "hash chain {}/{CHAIN_COUNT}: {:x}",
+                i + 1,
+                Hex(&MerkleHasher::<HASH_LENGTH>::hash(unsafe {
+                    from_raw_parts(chain.as_ptr() as *const u8, CHAIN_BLOCK_COUNT * HASH_LENGTH)
+                }))
+            ));
             // SAFETY: direct memory copy and adjust size, we already reserved the correct capacity.
             unsafe {
                 copy_nonoverlapping(chain.as_ptr(), cursor, CHAIN_BLOCK_COUNT);
@@ -225,7 +235,7 @@ where
             printer.debug_println(&format!("reference index: {reference_index}"));
             output.extend_from_slice(&(reference_index as u32).to_le_bytes());
             #[cfg(feature = "debug")]
-            printer.debug_println(&format!("bock hash: {:x}", Hex(block_hash)));
+            printer.debug_println(&format!("block hash: {:x}", Hex(block_hash)));
             output.extend_from_slice(block_hash);
             #[cfg(feature = "debug")]
             printer.debug_println(&format!(
@@ -249,6 +259,11 @@ where
             ));
             output.extend_from_slice(&proof);
         }
+        #[cfg(feature = "debug")]
+        printer.debug_println(&format!(
+            "pow hash: {:x}",
+            Hex(&MerkleHasher::<HASH_LENGTH>::hash(&output))
+        ));
         output.into_boxed_slice()
     }
 
@@ -257,7 +272,7 @@ where
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
-        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()));
+        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()), printer);
         let root = state.root();
         let indices = Self::select_indices(&root);
         let parent_blocks = Box::new(from_fn(|i| {

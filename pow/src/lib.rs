@@ -141,8 +141,9 @@ mod generate {
     pub fn build_state(
         hash_chains: &[&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT];
              DEFAULT_CHAIN_COUNT],
+        printer: impl DebugPrinter,
     ) -> Box<State<DEFAULT_HASH_LENGTH>> {
-        DefaultGenerator::build_state(hash_chains)
+        DefaultGenerator::build_state(hash_chains, printer)
     }
 
     pub fn select_indices(root: &[u8; DEFAULT_HASH_LENGTH]) -> Box<[usize; DEFAULT_STEP_COUNT]> {

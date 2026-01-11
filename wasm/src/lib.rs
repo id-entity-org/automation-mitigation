@@ -4,6 +4,7 @@ use pow::{
 };
 use std::array::from_fn;
 use std::slice;
+use std::slice::from_raw_parts;
 
 #[link(wasm_import_module = "js")]
 unsafe extern "C" {
@@ -28,8 +29,23 @@ impl Printer {
 }
 
 #[unsafe(no_mangle)]
+pub static HASH_LENGTH_PTR: usize = DEFAULT_HASH_LENGTH;
+
+#[unsafe(no_mangle)]
+pub static STEP_COUNT_PTR: usize = DEFAULT_STEP_COUNT;
+
+#[unsafe(no_mangle)]
+pub static BLOCK_SIZE_PTR: usize = DEFAULT_BLOCK_SIZE;
+
+#[unsafe(no_mangle)]
+pub static CHAIN_BLOCK_COUNT_PTR: usize = DEFAULT_CHAIN_BLOCK_COUNT;
+
+#[unsafe(no_mangle)]
+pub static CHAIN_COUNT_PTR: usize = DEFAULT_CHAIN_COUNT;
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash(ptr: *const u8, len: usize) -> *mut u8 {
-    let payload = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let payload = unsafe { from_raw_parts(ptr, len) };
     let hash = pow::hash(payload);
     Box::into_raw(Box::new(hash)) as *mut u8
 }
@@ -45,7 +61,7 @@ pub unsafe extern "C" fn free_hash(ptr: *mut u8) {
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut u8 {
     Printer.debug_println("cast nonce to &[u8; 16]");
     let nonce: &[u8; 16] = unsafe {
-        std::slice::from_raw_parts(nonce_ptr, 16)
+        from_raw_parts(nonce_ptr, 16)
             .try_into()
             .inspect_err(|err| Printer.error_println(&format!("{err}")))
             .unwrap()
@@ -59,7 +75,7 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
-        std::slice::from_raw_parts(
+        from_raw_parts(
             chain_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
             DEFAULT_CHAIN_BLOCK_COUNT,
         )
@@ -72,19 +88,34 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     Box::into_raw(hash_chain) as *mut u8
 }
 
+// /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn build_state(
+//     hash_chain1_ptr: *const u8,
+//     hash_chain2_ptr: *const u8,
+// ) -> *mut State<DEFAULT_HASH_LENGTH> {
+//     let chain1 = unsafe {
+//         &*(hash_chain1_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+//     };
+//     let chain2 = unsafe {
+//         &*(hash_chain2_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+//     };
+//     let state = pow::build_state(&[&chain1, &chain2]);
+//     Box::into_raw(state)
+// }
+
 /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn build_state(
-    hash_chain1_ptr: *const u8,
-    hash_chain2_ptr: *const u8,
+    hash_chains_ptr: *const usize,
 ) -> *mut State<DEFAULT_HASH_LENGTH> {
-    let chain1 = unsafe {
-        &*(hash_chain1_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
-    };
-    let chain2 = unsafe {
-        &*(hash_chain2_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
-    };
-    let state = pow::build_state(&[&chain1, &chain2]);
+    let chain_ptrs =
+        unsafe { from_raw_parts(hash_chains_ptr as *const *const u8, DEFAULT_CHAIN_COUNT) };
+    let chains: [&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT] =
+        from_fn(|i| unsafe {
+            &*(chain_ptrs[i] as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+        });
+    let state = pow::build_state(&chains, Printer);
     Box::into_raw(state)
 }
 
@@ -168,11 +199,6 @@ pub unsafe extern "C" fn combine(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_hash_chain(ptr: *mut u8) {
-    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_chain(ptr: *mut u8) {
     let _ = unsafe {
         Box::from_raw(ptr as *mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT])
@@ -191,7 +217,7 @@ pub unsafe extern "C" fn combine_chains(
     chain2_ptr: *const u8,
 ) -> Box<[u8; 8]> {
     let chain1: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
-        std::slice::from_raw_parts(
+        from_raw_parts(
             chain1_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
             DEFAULT_CHAIN_BLOCK_COUNT,
         )
@@ -200,7 +226,7 @@ pub unsafe extern "C" fn combine_chains(
         .unwrap()
     };
     let chain2: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
-        std::slice::from_raw_parts(
+        from_raw_parts(
             chain2_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
             DEFAULT_CHAIN_BLOCK_COUNT,
         )
@@ -220,7 +246,7 @@ pub unsafe extern "C" fn combine_chains(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_nonce() -> *mut u8 {
-    Printer.debug_println("alloc monce");
+    Printer.debug_println("alloc nonce");
     let mut vec = Vec::<u8>::with_capacity(16);
     let ptr = vec.as_mut_ptr();
     core::mem::forget(vec);
@@ -231,6 +257,35 @@ pub unsafe extern "C" fn alloc_nonce() -> *mut u8 {
 pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
     Printer.debug_println("free nonce");
     unsafe { Vec::from_raw_parts(ptr, 0, 16) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
+    Printer.debug_println("alloc hash chain");
+    let hash_chain: Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> =
+        Box::new([[0u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]);
+    Box::into_raw(hash_chain) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_hash_chain(ptr: *mut u8) {
+    Printer.debug_println("free hash chain");
+    let _ = unsafe { Box::from_raw(ptr as *mut [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_STEP_COUNT]) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn alloc_hash_chains() -> *mut usize {
+    Printer.debug_println("alloc hash chains");
+    let mut vec = Vec::<usize>::with_capacity(DEFAULT_CHAIN_COUNT);
+    let ptr = vec.as_mut_ptr();
+    core::mem::forget(vec);
+    ptr
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_hash_chains(ptr: *mut usize) {
+    Printer.debug_println("free hash chains");
+    unsafe { Vec::from_raw_parts(ptr, 0, DEFAULT_CHAIN_COUNT) };
 }
 
 #[unsafe(no_mangle)]
