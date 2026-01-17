@@ -93,7 +93,6 @@ if(isWorker){
               worker.postMessage({hash,nonce,n,port:channel.port2},[channel.port2]);
             }))).catch(onerror);
             const hashChainsPtr=wasm.alloc_hash_chains();
-            const hashChains=new DataView(wasm.memory.buffer,hashChainsPtr,CHAIN_COUNT);
             results.forEach(({hashChain}, i)=>{
               const hashChainPtr=wasm.alloc_hash_chain();
               new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
@@ -101,10 +100,8 @@ if(isWorker){
             });
             const statePtr=wasm.build_state(hashChainsPtr);
             const rootPtr=wasm.root(statePtr);
-            console.log(`root: 0x${new Uint8Array(wasm.memory.buffer,rootPtr,HASH_LENGTH).toHex()}`);
             const indicesPtr=wasm.select_indices(rootPtr);
             const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
-            console.log(`indices: ${indices.join(', ')}`);
             const parentBlocksPtr=wasm.alloc_blocks();
             const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlocksPtr,STEP_COUNT*BLOCK_SIZE);
             for(let i=0;i<STEP_COUNT;++i){
@@ -123,7 +120,6 @@ if(isWorker){
             }
             const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
             const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
-            console.log(`reference indices: ${referenceIndices.join(', ')}`);
             const referenceBlocksPtr=wasm.alloc_blocks();
             const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlocksPtr,STEP_COUNT*BLOCK_SIZE);
             for(let i=0;i<STEP_COUNT;++i){
@@ -166,11 +162,8 @@ if(isWorker){
             const noncePtr=wasm.alloc_nonce();
             new Uint8Array(wasm.memory.buffer,noncePtr,16).set(nonce);
             chainPtr=wasm.generate_chain(i,noncePtr);
-            const chain=new Uint8Array(wasm.memory.buffer,chainPtr,CHAIN_BLOCK_COUNT*BLOCK_SIZE);
-            console.log(`chain ${i+1}: 0x${new Uint8Array(await crypto.subtle.digest('SHA-256',chain)).toHex()}`);
             wasm.free_nonce(noncePtr, 16);
             const hashChainPtr=wasm.hash_chain(chainPtr);
-            console.log(`hash chain ${i+1}: 0x${new Uint8Array(wasm.memory.buffer,wasm.hash(hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH),HASH_LENGTH).toHex()}`);
             const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH);
             port.postMessage(hashChain);
           }else if(!isNaN(index)&&index>0&&index<CHAIN_BLOCK_COUNT){

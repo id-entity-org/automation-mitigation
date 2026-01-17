@@ -1,10 +1,16 @@
 extern crate rs_merkle;
 
 pub const DEFAULT_BLOCK_SIZE: usize = 256;
+#[cfg(feature = "high-memory")]
 pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 524_288;
+#[cfg(not(feature = "high-memory"))]
+pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 262_144;
 pub const DEFAULT_CHAIN_COUNT: usize = 2;
 pub const DEFAULT_STEP_COUNT: usize = 10;
+#[cfg(feature = "high-cpu")]
 pub const DEFAULT_ITERATION_COUNT: usize = 8;
+#[cfg(not(feature = "high-cpu"))]
+pub const DEFAULT_ITERATION_COUNT: usize = 1;
 pub const DEFAULT_HASH_LENGTH: usize = 16;
 
 pub type Nonce = [u8; 16];
@@ -198,6 +204,7 @@ mod verify {
 }
 
 use crate::hasher::MerkleHasher;
+#[cfg(any(test, feature = "debug"))]
 use crate::hex::Hex;
 #[cfg(feature = "verify")]
 pub use verify::*;
@@ -232,17 +239,21 @@ pub fn index_log<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT: usize>(
     i: usize,
     printer: impl DebugPrinter,
 ) -> usize {
+    #[cfg(feature = "debug")]
     printer.debug_println(&format!("root: {:x}", Hex(merkle_root)));
     let hash: [u8; 16] = MerkleHasher::<16>::hash_with_custom_domain(
         merkle_root,
         (i as u64).to_le_bytes().as_slice(),
     );
+    #[cfg(feature = "debug")]
     printer.debug_println(&format!("hash with custom domain: {:x}", Hex(&hash)));
     let seed = u64::from_le_bytes(hash[..8].try_into().unwrap()) as u128;
     let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
     let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
+    #[cfg(feature = "debug")]
     printer.debug_println(&format!("chain: {chain}"));
     let offset = chain * CHAIN_BLOCK_COUNT;
+    #[cfg(feature = "debug")]
     printer.debug_println(&format!("offset: {offset}"));
     (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
 }

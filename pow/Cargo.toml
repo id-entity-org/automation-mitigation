@@ -27,10 +27,12 @@ default-features = false
 features = []
 
 [features]
-default = ["generate", "verify", "tiny-keccak", "debug"]
+default = ["generate", "verify", "tiny-keccak", "debug", "high-memory", "high-cpu"]
 generate = []
 verify = []
 debug = []
+high-memory = []
+high-cpu = []
 tiny-keccak = ["dep:tiny-keccak"]
 rust-crypto = ["dep:sha3"]
 const-hash = ["dep:keccak-const"]

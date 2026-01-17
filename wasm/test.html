@@ -9,18 +9,28 @@ html{height:100%;font:3vmin monospace;background:#222;color:#eee}
 body{min-height:100%;padding:1rem;display:grid;place-items:center}
 main{display:flex;flex-direction:column}
 a{color:inherit}
+a:not([href]):after{
+  content:'...';
+  animation:spinner 800ms steps(5) infinite;
+  font-family:monospace;
+}
+@keyframes spinner{
+  0%{content:"..."}
+  20%{content:"\00a0.."}
+  40%{content:"\00a0\00a0."}
+  60%{content:".\00a0\00a0"}
+  80%{content:"..\00a0"}
+}
 </style>
 </head>
 <body>
 <main>
-  <a>Generating proof of work...</a>
+  <a>Generating proof of work</a>
 </main>
 </body>
 <script type="module">
-import pow from './lib.mjs';
+import pow from './lib-min.mjs';
 const link=document.querySelector('main>a');
-// const nonce=new Uint8Array(16);
-// crypto.getRandomValues(nonce);
 const nonce=new Uint8Array(
   await crypto.subtle.digest('SHA-256', new TextEncoder().encode('blah'))
 ).subarray(0,16);
@@ -28,12 +38,12 @@ console.log(`nonce: ${nonce.toHex()}`);
 link.setAttribute('download',nonce.toHex());
 const t0=Date.now();
 const abortController=new AbortController();
-const p=await pow(nonce,abortController.signal);
+const proof=await pow(nonce,abortController.signal);
 const t1=Date.now();
-console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',p))).toHex()}`);
+console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',proof))).toHex()}`);
 console.log(`${t1-t0}ms`);
-// const blob=new Blob([chain],{type: 'application/octet-stream'});
-// link.href=URL.createObjectURL(blob);
-// link.textContent=`Chain generated (${chain.length}b)`;
+const blob=new Blob([proof],{type: 'application/octet-stream'});
+link.href=URL.createObjectURL(blob);
+link.textContent=`Proof generated (${proof.length}b)`;
 </script>
 </html>
