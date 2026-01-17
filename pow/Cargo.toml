@@ -27,10 +27,11 @@ default-features = false
 features = []
 
 [features]
-default = ["generate", "verify", "tiny-keccak", "debug", "high-memory", "high-cpu"]
+default = ["generate", "verify", "tiny-keccak", "debug", "progress", "high-memory", "high-cpu"]
 generate = []
 verify = []
 debug = []
+progress = []
 high-memory = []
 high-cpu = []
 tiny-keccak = ["dep:tiny-keccak"]

@@ -5,9 +5,10 @@ const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGloba
 /**
  * @param {Uint8Array} nonce
  * @param {AbortSignal} signal
+ * @param {(i:number)=>void} onProgress
  * @return {Promise<Uint8Array>}
  */
-const pow=async(nonce,signal)=>{
+const pow=async(nonce,signal,onProgress)=>{
   const random=crypto.getRandomValues(new Uint8Array(16));
   const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',random)).toHex();
   const worker=await new Promise((resolve,reject)=>{
@@ -24,6 +25,7 @@ const pow=async(nonce,signal)=>{
     };
   });
   signal.throwIfAborted();
+  let progress=0;
   return await new Promise((resolve,reject)=>{
     if(signal.aborted) return reject();
     worker.onerror=_=>{
@@ -34,10 +36,13 @@ const pow=async(nonce,signal)=>{
     signal.addEventListener('abort',worker.onerror);
     worker.onmessage=({data})=>{
       if(typeof data==='object'){
-        const {hash:h,proof}=data;
+        const {hash:h,proof,progress_increment:incr}=data;
         if(h===hash&&proof){
           worker.terminate();
           resolve(proof);
+        }else if(h===hash&&incr!==undefined){
+          progress+=incr;
+          onProgress(progress/255);
         }
       }
     };
@@ -51,6 +56,7 @@ if(isWorker){
   const{instance}=await WebAssembly.instantiateStreaming(fetch(url,{cache:'force-cache'}),{js:{
     println:(ptr,len)=>console.log(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
     eprintln:(ptr,len)=>console.error(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
+    increment_progress:i=>postMessage({hash,progress_increment:i}),
   }});
   wasm=instance.exports;
   const HASH_LENGTH=new DataView(wasm.memory.buffer,wasm.HASH_LENGTH_PTR,4).getUint32(0,true);
@@ -66,7 +72,11 @@ if(isWorker){
         if(typeof data==='object'){
           const {hash:h,ready}=data;
           if(h===hash&&ready){
-            worker.onmessage=null;
+            worker.onmessage=({data:{hash:h,progress_increment:incr}})=>{
+              if(h===hash&&incr!==undefined){
+                postMessage({hash,progress_increment:incr});
+              }
+            };
             resolve(worker);
           }
         }

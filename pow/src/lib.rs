@@ -59,6 +59,10 @@ pub(crate) mod hasher;
 #[cfg(any(test, feature = "debug"))]
 pub mod hex;
 
+pub trait ProgressReporter: Copy {
+    fn increment(&self, i: u8);
+}
+
 pub trait DebugPrinter: Copy {
     #[inline(always)]
     fn debug_println(&self, message: &str) {
@@ -95,8 +99,12 @@ mod generate {
         MerkleHasher::<DEFAULT_HASH_LENGTH>::hash(payload)
     }
 
-    pub fn generate_proof(nonce: &Nonce, printer: impl DebugPrinter) -> Box<[u8]> {
-        let chains = DefaultGenerator::generate_chains(nonce, printer);
+    pub fn generate_proof(
+        nonce: &Nonce,
+        printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
+    ) -> Box<[u8]> {
+        let chains = DefaultGenerator::generate_chains(nonce, printer, progress);
         let chains: [&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT] =
             chains
                 .iter()
@@ -104,16 +112,17 @@ mod generate {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
-        DefaultGenerator::combine_chains(&chains, printer)
+        DefaultGenerator::combine_chains(&chains, printer, progress)
     }
 
     pub fn generate_chain(
         i: usize,
         nonce: &Nonce,
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]> {
         assert!(i < DEFAULT_CHAIN_COUNT);
-        DefaultGenerator::generate_chain(i, nonce, printer)
+        DefaultGenerator::generate_chain(i, nonce, printer, progress)
     }
 
     pub fn generate_allocated_chain(
@@ -121,6 +130,7 @@ mod generate {
         nonce: &Nonce,
         blocks: &mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) {
         assert!(i < DEFAULT_CHAIN_COUNT);
         // SAFETY: we just convert valid allocated memory into MaybeUninit
@@ -128,28 +138,31 @@ mod generate {
             &mut *(blocks as *mut _
                 as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
         };
-        DefaultGenerator::generate_allocated_chain(i, nonce, blocks, printer)
+        DefaultGenerator::generate_allocated_chain(i, nonce, blocks, printer, progress)
     }
 
     pub fn combine_chains(
         chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
-        DefaultGenerator::combine_chains(chains, printer)
+        DefaultGenerator::combine_chains(chains, printer, progress)
     }
 
     pub fn hash_chain(
         chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
+        progress: impl ProgressReporter,
     ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> {
-        DefaultGenerator::hash_chain(chain)
+        DefaultGenerator::hash_chain(chain, progress)
     }
 
     pub fn build_state(
         hash_chains: &[&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT];
              DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<State<DEFAULT_HASH_LENGTH>> {
-        DefaultGenerator::build_state(hash_chains, printer)
+        DefaultGenerator::build_state(hash_chains, printer, progress)
     }
 
     pub fn select_indices(root: &[u8; DEFAULT_HASH_LENGTH]) -> Box<[usize; DEFAULT_STEP_COUNT]> {
@@ -175,6 +188,7 @@ mod generate {
         parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
         reference_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
         DefaultGenerator::combine(
             state,
@@ -184,6 +198,7 @@ mod generate {
             parent_blocks,
             reference_blocks,
             printer,
+            progress,
         )
     }
 }
@@ -283,11 +298,17 @@ mod tests {
     use crate::hex::Hex;
     use sha2::{Digest, Sha256};
     use std::mem::MaybeUninit;
+    use std::sync::atomic::AtomicU8;
     use std::thread;
     use std::time::UNIX_EPOCH;
 
     #[derive(Copy, Clone)]
     pub struct NoDebugPrinter;
+
+    pub static PROGRESS: AtomicU8 = AtomicU8::new(0);
+
+    #[derive(Copy, Clone)]
+    pub struct ProgressPrinter;
 
     #[derive(Copy, Clone)]
     struct StdDebugPrinter;
@@ -296,6 +317,16 @@ mod tests {
     impl DebugPrinter for NoDebugPrinter {
         #[inline(always)]
         fn debug_println(&self, _message: &str) {}
+    }
+
+    impl ProgressReporter for ProgressPrinter {
+        #[inline(always)]
+        fn increment(&self, i: u8) {
+            println!(
+                "progress: {}",
+                PROGRESS.fetch_add(i, std::sync::atomic::Ordering::Relaxed)
+            );
+        }
     }
 
     #[test]
@@ -328,7 +359,13 @@ mod tests {
             &mut *(ptr as *mut _
                 as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_CHAIN_BLOCK_COUNT])
         };
-        DefaultGenerator::generate_allocated_chain(0, &nonce, blocks, StdDebugPrinter);
+        DefaultGenerator::generate_allocated_chain(
+            0,
+            &nonce,
+            blocks,
+            StdDebugPrinter,
+            ProgressPrinter,
+        );
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()
@@ -338,7 +375,13 @@ mod tests {
             "e7e9e62c96ab862d1fd401d9e941ad244b0d9b7b75e05d813b3e45218a083dc7",
             hash
         );
-        DefaultGenerator::generate_allocated_chain(1, &nonce, blocks, StdDebugPrinter);
+        DefaultGenerator::generate_allocated_chain(
+            1,
+            &nonce,
+            blocks,
+            StdDebugPrinter,
+            ProgressPrinter,
+        );
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()
@@ -348,9 +391,9 @@ mod tests {
             "3a527fd2a07faf360d1e3292e683e2c5f573533aa5facbf48519865070331202",
             hash
         );
-        let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter);
-        let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter);
-        let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter);
+        let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter, ProgressPrinter);
+        let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter, ProgressPrinter);
+        let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter, ProgressPrinter);
         let chain = Box::into_raw(chain1) as *mut u8;
         let chain = unsafe {
             Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT])
@@ -388,7 +431,7 @@ mod tests {
     #[test]
     fn test_generate_serial_and_verify_proof_default() {
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
-        let proof = generate_proof(&nonce, StdDebugPrinter);
+        let proof = generate_proof(&nonce, StdDebugPrinter, ProgressPrinter);
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
@@ -404,7 +447,8 @@ mod tests {
         type TestChallenge = Challenge;
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
         let t0 = UNIX_EPOCH.elapsed().unwrap();
-        let proof = TestChallenge::generate_proof_in_parallel(&nonce, NoDebugPrinter);
+        let proof =
+            TestChallenge::generate_proof_in_parallel(&nonce, NoDebugPrinter, ProgressPrinter);
         let elapsed = UNIX_EPOCH.elapsed().unwrap() - t0;
         println!("{}ms", elapsed.as_millis());
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
@@ -428,7 +472,8 @@ mod tests {
             DEFAULT_HASH_LENGTH,
         >;
         let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_be_bytes();
-        let proof = TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter);
+        let proof =
+            TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -437,7 +482,8 @@ mod tests {
     fn test_generate_in_parallel_and_verify_proof_non_default() {
         type TestChallenge = Challenge<4, 5, 262_144, 1024, 6, 32>;
         let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_be_bytes();
-        let proof = TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter);
+        let proof =
+            TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -471,10 +517,13 @@ mod tests {
         fn generate_proof_in_parallel(
             nonce: &Nonce,
             printer: impl DebugPrinter + Send + Sync,
+            progress: impl ProgressReporter + Send + Sync,
         ) -> Box<[u8]> {
             thread::scope(move |scope| {
                 let joins = (0..CHAIN_COUNT)
-                    .map(|i| scope.spawn(move || Self::generate_chain(i, &nonce, printer)))
+                    .map(|i| {
+                        scope.spawn(move || Self::generate_chain(i, &nonce, printer, progress))
+                    })
                     .collect::<Vec<_>>();
                 let chains = joins
                     .into_iter()
@@ -486,7 +535,7 @@ mod tests {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap();
-                Self::combine_chains(&chains, StdDebugPrinter)
+                Self::combine_chains(&chains, printer, progress)
             })
         }
     }

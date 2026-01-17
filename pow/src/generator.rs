@@ -2,7 +2,7 @@ use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
 #[cfg(feature = "debug")]
 use crate::hex::Hex;
-use crate::{challenge_index, reference_block_index, Block, Nonce};
+use crate::{challenge_index, reference_block_index, Block, Nonce, ProgressReporter};
 use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
@@ -42,26 +42,38 @@ where
         4 + 4 + BLOCK_SIZE + BLOCK_SIZE + HASH_LENGTH + 4 + (Self::TREE_PROOF_BYTE_COUNT / 2);
     const ESTIMATED_FULL_PROOF_BYTE_COUNT: usize =
         32 + Self::ESTIMATED_CHALLENGE_PROOF_BYTE_COUNT * STEP_COUNT;
+    #[cfg(feature = "progress")]
+    const TOTAL_PROGRESS: u64 = (CHAIN_COUNT * BLOCK_SIZE * CHAIN_BLOCK_COUNT) as u64 // chain
+        + (CHAIN_COUNT * HASH_LENGTH * CHAIN_BLOCK_COUNT) as u64 // hash chain
+        + (CHAIN_COUNT * HASH_LENGTH * CHAIN_BLOCK_COUNT) as u64 // state
+        + ((4 * BLOCK_SIZE) * STEP_COUNT) as u64; // proof
+
+    #[cfg(feature = "progress")]
+    pub fn total_progress(&self) -> u64 {
+        Self::TOTAL_PROGRESS
+    }
 
     pub fn generate_chains(
         nonce: &Nonce,
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> [Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT] {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let nonces = Self::split_nonce(nonce);
-        from_fn(|i| Self::generate_chain_split_nonce(i, &nonces[i], printer))
+        from_fn(|i| Self::generate_chain_split_nonce(i, &nonces[i], printer, progress))
     }
 
     pub fn generate_chain(
         i: usize,
         nonce: &Nonce,
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
         let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
         let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
             allocated.as_mut().try_into().unwrap();
-        Self::generate_allocated_chain(i, nonce, blocks, printer);
+        Self::generate_allocated_chain(i, nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
         unsafe { allocated.assume_init() }.try_into().unwrap()
     }
@@ -70,11 +82,12 @@ where
         i: usize,
         split_nonce: &Nonce,
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
         let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
         let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
             allocated.as_mut().try_into().unwrap();
-        Self::generate_allocated_chain_split_nonce(i, split_nonce, blocks, printer);
+        Self::generate_allocated_chain_split_nonce(i, split_nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
         unsafe { allocated.assume_init() }.try_into().unwrap()
     }
@@ -84,11 +97,12 @@ where
         nonce: &Nonce,
         blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let split_nonce = Self::split_nonce(nonce)[i];
-        Self::generate_allocated_chain_split_nonce(i, &split_nonce, blocks, printer)
+        Self::generate_allocated_chain_split_nonce(i, &split_nonce, blocks, printer, progress)
     }
 
     fn generate_allocated_chain_split_nonce(
@@ -96,6 +110,7 @@ where
         split_nonce: &Nonce,
         blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
@@ -114,6 +129,8 @@ where
             ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
         }
         let mut allocated_hash = [0; 64];
+        #[cfg(feature = "progress")]
+        let mut p0 = 0;
         for index in 2..CHAIN_BLOCK_COUNT {
             let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(
                 index + offset,
@@ -128,11 +145,20 @@ where
                 reference_index - offset,
                 &mut allocated_hash,
             );
+            #[cfg(feature = "progress")]
+            {
+                let p = 256 * (index * BLOCK_SIZE) as u64 / Self::TOTAL_PROGRESS;
+                if p > p0 {
+                    progress.increment((p - p0) as u8);
+                    p0 = p;
+                }
+            }
         }
     }
 
     pub fn hash_chain(
         chain: &[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
+        progress: impl ProgressReporter,
     ) -> Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]> {
         let vec = chain
             .iter()
@@ -141,6 +167,13 @@ where
                 hash
             })
             .collect::<Vec<_>>();
+        #[cfg(feature = "progress")]
+        {
+            let incr = 256 * (CHAIN_BLOCK_COUNT * HASH_LENGTH) as u64 / Self::TOTAL_PROGRESS;
+            if incr > 0 {
+                progress.increment(incr as u8);
+            }
+        }
         let raw = Box::into_raw(vec.into_boxed_slice());
         // SAFETY: we know the vec is the same size as the input chain.
         unsafe { Box::from_raw(raw as *mut [[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]) }
@@ -149,6 +182,7 @@ where
     pub fn build_state(
         hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<State<HASH_LENGTH>> {
         let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         let mut cursor = leaves.as_mut_ptr();
@@ -171,7 +205,16 @@ where
         unsafe {
             leaves.set_len(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
         }
-        Box::new(State(MerkleTree::from_leaves(&leaves)))
+        let tree = Box::new(State(MerkleTree::from_leaves(&leaves)));
+        #[cfg(feature = "progress")]
+        {
+            let incr =
+                256 * (CHAIN_COUNT * HASH_LENGTH * CHAIN_BLOCK_COUNT) as u64 / Self::TOTAL_PROGRESS;
+            if incr > 0 {
+                progress.increment(incr as u8);
+            }
+        }
+        tree
     }
     pub fn select_indices(root: &[u8; HASH_LENGTH]) -> Box<[usize; STEP_COUNT]> {
         Box::new(from_fn(|i| {
@@ -203,6 +246,7 @@ where
         parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
         reference_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
@@ -217,6 +261,7 @@ where
         printer.debug_println(&format!("root: {:x}", Hex(root)));
         let mut output = Vec::with_capacity(Self::ESTIMATED_FULL_PROOF_BYTE_COUNT);
         output.extend_from_slice(root);
+        let mut p0 = 0;
         for i in 0..STEP_COUNT {
             #[cfg(feature = "debug")]
             printer.debug_println(&format!("step: {}/{STEP_COUNT}", i + 1));
@@ -258,6 +303,14 @@ where
                 Hex(&MerkleHasher::<HASH_LENGTH>::hash(&proof))
             ));
             output.extend_from_slice(&proof);
+            #[cfg(feature = "progress")]
+            {
+                let p = 256 * (i * BLOCK_SIZE * 4) as u64 / Self::TOTAL_PROGRESS;
+                if p > p0 {
+                    progress.increment((p - p0) as u8);
+                    p0 = p;
+                }
+            }
         }
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
@@ -270,9 +323,10 @@ where
     pub fn combine_chains(
         chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
         printer: impl DebugPrinter,
+        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
-        let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
-        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()), printer);
+        let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i], progress));
+        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()), printer, progress);
         let root = state.root();
         let indices = Self::select_indices(&root);
         let parent_blocks = Box::new(from_fn(|i| {
@@ -292,6 +346,7 @@ where
             &parent_blocks,
             &reference_blocks,
             printer,
+            progress,
         )
     }
 

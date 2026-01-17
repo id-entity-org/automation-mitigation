@@ -29,7 +29,7 @@ a:not([href]):after{
 </main>
 </body>
 <script type="module">
-import pow from './lib-min.mjs';
+import pow from './lib.mjs';
 const link=document.querySelector('main>a');
 const nonce=new Uint8Array(
   await crypto.subtle.digest('SHA-256', new TextEncoder().encode('blah'))
@@ -38,7 +38,10 @@ console.log(`nonce: ${nonce.toHex()}`);
 link.setAttribute('download',nonce.toHex());
 const t0=Date.now();
 const abortController=new AbortController();
-const proof=await pow(nonce,abortController.signal);
+const onProgress=progress=>{
+  console.log(`${progress*100}%`);
+}
+const proof=await pow(nonce,abortController.signal,onProgress);
 const t1=Date.now();
 console.log(`sha256: 0x${new Uint8Array((await crypto.subtle.digest('SHA-256',proof))).toHex()}`);
 console.log(`${t1-t0}ms`);

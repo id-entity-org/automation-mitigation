@@ -1,6 +1,6 @@
 use pow::{
-    Block, DebugPrinter, State, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT,
-    DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
+    Block, DebugPrinter, ProgressReporter, State, DEFAULT_BLOCK_SIZE,
+    DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
 };
 use std::array::from_fn;
 use std::slice::from_raw_parts;
@@ -9,6 +9,16 @@ use std::slice::from_raw_parts;
 unsafe extern "C" {
     fn println(ptr: usize, len: usize);
     fn eprintln(ptr: usize, len: usize);
+    fn increment_progress(i: u8);
+}
+
+#[derive(Copy, Clone)]
+struct Progress;
+
+impl ProgressReporter for Progress {
+    fn increment(&self, i: u8) {
+        unsafe { increment_progress(i) }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -51,7 +61,7 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut 
             .inspect_err(|err| Printer.error_println(&format!("{err}")))
             .unwrap()
     };
-    let chain = pow::generate_chain(i, nonce, Printer);
+    let chain = pow::generate_chain(i, nonce, Printer, Progress);
     Box::into_raw(chain) as *mut u8
 }
 
@@ -67,7 +77,7 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
         .inspect_err(|err| Printer.error_println(&format!("{err}")))
         .unwrap()
     };
-    let hash_chain = pow::hash_chain(chain);
+    let hash_chain = pow::hash_chain(chain, Progress);
     Box::into_raw(hash_chain) as *mut u8
 }
 
@@ -98,7 +108,7 @@ pub unsafe extern "C" fn build_state(
         from_fn(|i| unsafe {
             &*(chain_ptrs[i] as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
         });
-    let state = pow::build_state(&chains, Printer);
+    let state = pow::build_state(&chains, Printer, Progress);
     Box::into_raw(state)
 }
 
@@ -163,6 +173,7 @@ pub unsafe extern "C" fn combine(
         &from_fn(|i| &parent_blocks[i]),
         &from_fn(|i| &reference_blocks[i]),
         Printer,
+        Progress,
     );
     let len = proof.len();
     let ptr = Box::into_raw(proof) as *mut u8;
