@@ -65,6 +65,7 @@ pub trait ProgressReporter: Copy {
 
 pub trait DebugPrinter: Copy {
     #[inline(always)]
+    #[allow(unused_variables)]
     fn debug_println(&self, message: &str) {
         #[cfg(feature = "debug")]
         println!("{message}")
@@ -112,7 +113,7 @@ mod generate {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap();
-        DefaultGenerator::combine_chains(&chains, printer, progress)
+        DefaultGenerator::combine_chains(&chains, printer)
     }
 
     pub fn generate_chain(
@@ -144,25 +145,22 @@ mod generate {
     pub fn combine_chains(
         chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
-        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
-        DefaultGenerator::combine_chains(chains, printer, progress)
+        DefaultGenerator::combine_chains(chains, printer)
     }
 
     pub fn hash_chain(
         chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT],
-        progress: impl ProgressReporter,
     ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> {
-        DefaultGenerator::hash_chain(chain, progress)
+        DefaultGenerator::hash_chain(chain)
     }
 
     pub fn build_state(
         hash_chains: &[&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT];
              DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
-        progress: impl ProgressReporter,
     ) -> Box<State<DEFAULT_HASH_LENGTH>> {
-        DefaultGenerator::build_state(hash_chains, printer, progress)
+        DefaultGenerator::build_state(hash_chains, printer)
     }
 
     pub fn select_indices(root: &[u8; DEFAULT_HASH_LENGTH]) -> Box<[usize; DEFAULT_STEP_COUNT]> {
@@ -188,7 +186,6 @@ mod generate {
         parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
         reference_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
         printer: impl DebugPrinter,
-        progress: impl ProgressReporter,
     ) -> Box<[u8]> {
         DefaultGenerator::combine(
             state,
@@ -198,7 +195,6 @@ mod generate {
             parent_blocks,
             reference_blocks,
             printer,
-            progress,
         )
     }
 }
@@ -252,7 +248,7 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
 pub fn index_log<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT: usize>(
     merkle_root: &[u8],
     i: usize,
-    printer: impl DebugPrinter,
+    #[allow(unused_variables)] printer: impl DebugPrinter,
 ) -> usize {
     #[cfg(feature = "debug")]
     printer.debug_println(&format!("root: {:x}", Hex(merkle_root)));
@@ -393,7 +389,7 @@ mod tests {
         );
         let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter, ProgressPrinter);
         let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter, ProgressPrinter);
-        let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter, ProgressPrinter);
+        let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter);
         let chain = Box::into_raw(chain1) as *mut u8;
         let chain = unsafe {
             Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT])
@@ -535,7 +531,7 @@ mod tests {
                     .collect::<Vec<_>>()
                     .try_into()
                     .unwrap();
-                Self::combine_chains(&chains, printer, progress)
+                Self::combine_chains(&chains, printer)
             })
         }
     }

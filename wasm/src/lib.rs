@@ -1,6 +1,6 @@
 use pow::{
     Block, DebugPrinter, ProgressReporter, State, DEFAULT_BLOCK_SIZE,
-    DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT,
+    DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT,
 };
 use std::array::from_fn;
 use std::slice::from_raw_parts;
@@ -52,6 +52,9 @@ pub static CHAIN_BLOCK_COUNT_PTR: usize = DEFAULT_CHAIN_BLOCK_COUNT;
 #[unsafe(no_mangle)]
 pub static CHAIN_COUNT_PTR: usize = DEFAULT_CHAIN_COUNT;
 
+#[unsafe(no_mangle)]
+pub static ITERATION_COUNT_PTR: usize = DEFAULT_ITERATION_COUNT;
+
 /// Generates a chain of blocks.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut u8 {
@@ -77,7 +80,7 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
         .inspect_err(|err| Printer.error_println(&format!("{err}")))
         .unwrap()
     };
-    let hash_chain = pow::hash_chain(chain, Progress);
+    let hash_chain = pow::hash_chain(chain);
     Box::into_raw(hash_chain) as *mut u8
 }
 
@@ -108,7 +111,7 @@ pub unsafe extern "C" fn build_state(
         from_fn(|i| unsafe {
             &*(chain_ptrs[i] as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
         });
-    let state = pow::build_state(&chains, Printer, Progress);
+    let state = pow::build_state(&chains, Printer);
     Box::into_raw(state)
 }
 
@@ -173,7 +176,6 @@ pub unsafe extern "C" fn combine(
         &from_fn(|i| &parent_blocks[i]),
         &from_fn(|i| &reference_blocks[i]),
         Printer,
-        Progress,
     );
     let len = proof.len();
     let ptr = Box::into_raw(proof) as *mut u8;

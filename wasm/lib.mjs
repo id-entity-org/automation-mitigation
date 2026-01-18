@@ -36,13 +36,16 @@ const pow=async(nonce,signal,onProgress)=>{
     signal.addEventListener('abort',worker.onerror);
     worker.onmessage=({data})=>{
       if(typeof data==='object'){
-        const {hash:h,proof,progress_increment:incr}=data;
+        const {hash:h,proof,progress_increment:increment,progress_value:value,progress_max:max}=data;
         if(h===hash&&proof){
           worker.terminate();
           resolve(proof);
-        }else if(h===hash&&incr!==undefined){
-          progress+=incr;
-          onProgress(progress/255);
+        }else if(h===hash&&max){
+          const p0=progress;
+          const p=Math.trunc((value?progress=value:progress+=increment)*100/max);
+          if(p!==Math.trunc(p0*100/max)){
+            onProgress(p/100);
+          }
         }
       }
     };
@@ -53,10 +56,11 @@ export default pow;
 if(isWorker){
   const [hash,n]=globalThis.name.split('-');
   let wasm;
+  let progress_max;
   const{instance}=await WebAssembly.instantiateStreaming(fetch(url,{cache:'force-cache'}),{js:{
     println:(ptr,len)=>console.log(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
     eprintln:(ptr,len)=>console.error(new TextDecoder().decode(new Uint8Array(wasm.memory.buffer,ptr,len))),
-    increment_progress:i=>postMessage({hash,progress_increment:i}),
+    increment_progress:i=>postMessage({hash,progress_increment:i,progress_max}),
   }});
   wasm=instance.exports;
   const HASH_LENGTH=new DataView(wasm.memory.buffer,wasm.HASH_LENGTH_PTR,4).getUint32(0,true);
@@ -64,6 +68,17 @@ if(isWorker){
   const BLOCK_SIZE=new DataView(wasm.memory.buffer,wasm.BLOCK_SIZE_PTR,4).getUint32(0,true);
   const CHAIN_BLOCK_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_BLOCK_COUNT_PTR,4).getUint32(0,true);
   const CHAIN_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_COUNT_PTR,4).getUint32(0,true);
+  const ITERATION_COUNT=new DataView(wasm.memory.buffer,wasm.ITERATION_COUNT_PTR,4).getUint32(0,true);
+  // expected time:
+  // chains: t1 -> progress = 256
+  // hash chain: t2 = t1 / (4 * ITERATION_COUNT**.35)
+  // state + root: t3 = t2
+  // parent blocks: t4 = t2 / 2
+  // reference blocks: t5 = t2 / 2
+  // total: t1 + (t2 * 3)
+  const t1=256;
+  const t2=t1/(4*ITERATION_COUNT**.35);
+  progress_max=t1+(t2*3);
   if(n==='0'){ // coordinator worker
     const initWorker=i=>new Promise((resolve,reject)=>{
       const worker=new Worker(import.meta.url,{type:'module',credentials:'omit',name:`${hash}-${i}`});
@@ -72,9 +87,9 @@ if(isWorker){
         if(typeof data==='object'){
           const {hash:h,ready}=data;
           if(h===hash&&ready){
-            worker.onmessage=({data:{hash:h,progress_increment:incr}})=>{
-              if(h===hash&&incr!==undefined){
-                postMessage({hash,progress_increment:incr});
+            worker.onmessage=({data:{hash:h,progress_increment,progress_value,progress_max}})=>{
+              if(h===hash&&progress_max){
+                postMessage({hash,progress_increment,progress_value,progress_max});
               }
             };
             resolve(worker);
@@ -102,6 +117,7 @@ if(isWorker){
               }
               worker.postMessage({hash,nonce,n,port:channel.port2},[channel.port2]);
             }))).catch(onerror);
+            postMessage({hash,progress_value:t1+t2,progress_max});
             const hashChainsPtr=wasm.alloc_hash_chains();
             results.forEach(({hashChain}, i)=>{
               const hashChainPtr=wasm.alloc_hash_chain();
@@ -110,6 +126,7 @@ if(isWorker){
             });
             const statePtr=wasm.build_state(hashChainsPtr);
             const rootPtr=wasm.root(statePtr);
+            postMessage({hash,progress_value:t1+t2*2,progress_max});
             const indicesPtr=wasm.select_indices(rootPtr);
             const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
             const parentBlocksPtr=wasm.alloc_blocks();
@@ -128,6 +145,7 @@ if(isWorker){
               });
               parentBlocks.set(block,i*BLOCK_SIZE);
             }
+            postMessage({hash,progress_value:t1+t2*2.5,progress_max});
             const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
             const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
             const referenceBlocksPtr=wasm.alloc_blocks();
@@ -150,6 +168,7 @@ if(isWorker){
             const ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
             const [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
             const proof=new Uint8Array(wasm.memory.buffer,ptr,len);
+            postMessage({hash,progress_value:progress_max,progress_max});
             postMessage({hash,proof});
           }
         }
