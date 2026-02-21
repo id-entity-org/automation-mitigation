@@ -55,7 +55,7 @@ In that case, the client should restart the process when the expiration is immin
  
 - `lib.wasm`<br>
  
-This is the webassembly code with the optimized implementation of the proof of work algorithm.
+This is the WebAssembly code with the optimized implementation of the proof of work algorithm.
 The implementation is split in multiple steps to allow parallel computation using multiple web workers.
 
 You can generate the wasm file by compiling the [wasm](./wasm) crate.
@@ -68,11 +68,55 @@ However, both the cpu time and memory required can be adjusted.
 upon interaction to save resources, but the submission is almost immediate (there are no required fields).
 
 **Increasing complexity** can be desirable for forms involving content creation, such as writing a comment. 
-Since the user will naturally spend more time on the form, the proof can be more demanding without impacting
-the user experience.
+Since the user will naturally spend more time on the form, the additional time required to compute the proof 
+will not impact the user experience.
 
 - `lib.mjs`<br>
-...
+
+This is a Javascript module that exports an async function to actually create the proof of work for a given nonce.
+It makes use of the wasm module described above.<br>
+The arguments are:
+  - _nonce_<br>
+    A 16-byte [`Uint8Array`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array) 
+    provided by the server.
+  - _signal_<br>
+    An optional [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal) 
+    that can be used to abort the computation.
+  - _onProgress_<br>
+    An optional callback function triggered periodically to report the progress of the computation 
+    as a number between 0 and 1.
 
 ### Server-side
+
+For each form submission, the server must:
+ - Issue a **16-byte nonce** used as the seed for the proof of work generation.
+ - Verify the proof of work submitted by the client.
+
+The [pow](./pow) crate (with the `verify` feature enabled) exports a `verify_proof` function:<br>
+```rust
+pub fn verify_proof(nonce: &[u8; 16], proof: &[u8]) -> Option<()>
+```
+
+If your server is not implemented in [Rust](https://rust-lang.org/),
+the function can be compiled to WebAssembly and executed via a WASM runtime (see the [java](./examples/java) and [javascript](./examples/javascript) examples).
+
+The nonce must be unpredictable and unique. The unpredictability ensures that the proof cannot be pre-computed or any
+shortcut in the computation can be exploited. The uniqueness prevents replay of valid proofs already submitted.<br>
+16 bytes provide enough entropy for the seed of the proof of work algorithm.
+
+To prevent replay, the server must keep track of the nonces that were already issued, and verify that the nonce is valid
+as well as the proof.
+<br>
+It is recommended to still verify the proof even if the nonce is invalid.
+Otherwise, an attacker could use the duration of the response to check if a nonce is valid or not.
+
+Keeping track of the nonces can be done in several ways, but doing it as cheaply as possible can be tricky.<br>
+The [nonce](./nonce) crate provides an implementation that allows a large (over half a million)
+but finite number of seeds in a rolling time window of 15 minutes. 
+It uses two small (64 kb) local and unsynchronized bit-vectors to track the consumed seeds.
+This design is extremely efficient but allows a challenge to potentially be replayed in the same time window
+as many times as there are backend servers. This trade-off should be acceptable for the vast majority of applications.
+
+
+## Examples
 ...

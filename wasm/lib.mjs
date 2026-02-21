@@ -4,11 +4,11 @@ await(await fetch(url)).arrayBuffer();
 const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGlobalScope;
 /**
  * @param {Uint8Array} nonce
- * @param {AbortSignal} signal
- * @param {(i:number)=>void} onProgress
+ * @param {?AbortSignal} [signal]
+ * @param {(i:number)=>void|undefined} [onProgress]
  * @return {Promise<Uint8Array>}
  */
-const pow=async(nonce,signal,onProgress)=>{
+const pow=async(nonce,signal,onProgress=_=>{})=>{
   const random=crypto.getRandomValues(new Uint8Array(16));
   const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',random)).toHex();
   const worker=await new Promise((resolve,reject)=>{
@@ -24,16 +24,16 @@ const pow=async(nonce,signal,onProgress)=>{
       }
     };
   });
-  signal.throwIfAborted();
+  if(signal) signal.throwIfAborted();
   let progress=0;
   return await new Promise((resolve,reject)=>{
-    if(signal.aborted) return reject();
+    if(signal?.aborted) return reject();
     worker.onerror=_=>{
       worker.postMessage({hash,terminate:true});
       worker.terminate();
       reject();
     }
-    signal.addEventListener('abort',worker.onerror);
+    if(signal) signal.addEventListener('abort',worker.onerror);
     worker.onmessage=({data})=>{
       if(typeof data==='object'){
         const {hash:h,proof,progress_increment:increment,progress_value:value,progress_max:max}=data;
