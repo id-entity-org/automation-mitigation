@@ -1,4 +1,8 @@
-It starts with a 16-byte Nonce.
+# Proof of work
+
+## Implementation details
+
+It starts with a 16-byte [Nonce](https://en.wikipedia.org/wiki/Cryptographic_nonce).
 
 We derive `CHAIN_COUNT` chains. `CHAIN_COUNT` is between 1 and 8 (2 by default).
 
@@ -14,15 +18,15 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
     These nonces are used to seed each chain.<br><br>
 
   - Initialize the chains blocks.<br>
-    The first two blocks are all zeros.<br>
+    The first two blocks are zero-filled.<br>
     For the next blocks:
-    - take the parent (previous) block
-    - take a reference block<br>
+    - Take the parent (previous) block
+    - Take a reference block<br>
       The reference block is an index between 0 and parent index, 
       calculated deterministically from the parent block content.
     - For each hash (at index i) in the block, the value is the [cShake256](https://kerkour.com/sha3#cshake) hash
       with the parent block hash[i] as custom domain and reference block hash[i] as input, 
-      followed by ITERATION_COUNT (1 by default) passes of Shake256 hashing.<br><br>
+      followed by ITERATION_COUNT (1 by default) passes of [Shake256](https://kerkour.com/sha3#shake) hashing.<br><br>
 
   - Create a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) from the blocks (from all the chains).<br>
     One leaf per block with the Shake256 hash of the full block (all hashes concatenated).<br><br>
@@ -44,7 +48,7 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
 ---
 
 ### Steps to verify the proof
-  - Extract the merkle tree root
+  - Extract the merkle tree root<br><br>
   - For each step:
     - extract the index `i` and verify it
     - extract the reference index `r`
@@ -54,3 +58,37 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
     - verify the reference index
     - compute the block and verify its hash
     - extract the proof for those 3 indices and verify it
+
+<br>
+
+## Crate features
+
+You can choose between 3 different implementations of the shake and cshake functions:
+  - [tiny-keccak](https://crates.io/crates/tiny-keccak)<br>
+    CC0-1.0 licensed<br>
+    The fastest of the 3 options and the one used by default.
+  - [rust-crypto](https://rustcrypto.org) [sha3](https://crates.io/crates/sha3)<br>
+    Dual licensed under Apache 2.0 and MIT.
+  - const-hash<br>
+    Dual licensed under Apache 2.0 and MIT.<br>
+    Based on a fork of [keccak-const](https://crates.io/crates/keccak-const) that adds cShake variants.<br>
+    Much slower but the hash functions are [const fn](https://doc.rust-lang.org/reference/const_eval.html#const-functions).
+
+You can tweak the const parameters (mentioned in the implementation details above) with the features:
+  - high-cpu<br>
+    Modifies the hashing passes during block initialization from 1 to 16, which usually results in doubling the cpu time.
+  - high-memory<br>
+    Doubles the number of blocks to 524_288 per chain.<br><br>
+
+The generation and verification are usually done in separate binaries.
+You can enable only the part that is needed:
+  - generate<br><br>
+  - verify<br><br>
+
+You can enable progress tracking with the feature:
+  - progress<br><br>
+
+You can add verbose logging with the feature:
+  - debug<br><br>
+
+---
