@@ -2,7 +2,7 @@
 members = [
     "pow",
     "wasm",
-    "server"
+    "nonce"
 ]
 resolver = "3"
 

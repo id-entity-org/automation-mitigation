@@ -1,13 +1,25 @@
 [package]
-name = "automation-mitigation-server"
+name = "automation-mitigation-nonce"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[dependencies.pow]
-path = "../pow"
-package = "automation-mitigation-pow"
-default-features = false
-features = ["generate"]
+[dependencies.keccak-const]
+workspace = true
+optional = true
+
+[dependencies.tiny-keccak]
+workspace = true
+optional = true
+
+[dependencies.sha3]
+workspace = true
+optional = true
+
+[features]
+default = ["tiny-keccak"]
+tiny-keccak = ["dep:tiny-keccak"]
+rust-crypto = ["dep:sha3"]
+const-hash = ["dep:keccak-const"]
