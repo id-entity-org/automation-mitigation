@@ -1,5 +1,5 @@
 // preload
-const url=new URL('lib.wasm',import.meta.url);
+const url=new URL('lib-high.wasm',import.meta.url);
 await(await fetch(url)).arrayBuffer();
 const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGlobalScope;
 /**
