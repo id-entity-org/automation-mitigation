@@ -14,7 +14,7 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
 
 ### Steps to generate the proof
   - Split the original nonce into CHAIN_COUNT nonces.<br>
-    [Shake256](https://kerkour.com/sha3#shake) is used as [KDF](https://en.wikipedia.org/wiki/Key_derivation_function).<br>
+    [cShake256](https://kerkour.com/sha3#cshake) is used as [KDF](https://en.wikipedia.org/wiki/Key_derivation_function).<br>
     These nonces are used to seed each chain.<br><br>
 
   - Initialize the chains blocks.<br>
@@ -26,10 +26,10 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
       calculated deterministically from the parent block content.
     - For each hash (at index i) in the block, the value is the [cShake256](https://kerkour.com/sha3#cshake) hash
       with the parent block hash[i] as custom domain and reference block hash[i] as input, 
-      followed by ITERATION_COUNT (1 by default) passes of [Shake256](https://kerkour.com/sha3#shake) hashing.<br><br>
+      followed by ITERATION_COUNT (1 by default) passes of cShake256 hashing.<br><br>
 
   - Create a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) from the blocks (from all the chains).<br>
-    One leaf per block with the Shake256 hash of the full block (all hashes concatenated).<br><br>
+    One leaf per block with the cShake256 hash of the full block (all hashes concatenated).<br><br>
 
   - Calculate STEP_COUNT (10 by default) indices.<br>
     They are calculated deterministically from the merkle tree root.<br><br>
@@ -63,7 +63,7 @@ Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 byt
 
 ## Crate features
 
-You can choose between 3 different implementations of the shake and cshake functions:
+You can choose between 3 different implementations of the cshake function:
   - [tiny-keccak](https://crates.io/crates/tiny-keccak)<br>
     CC0-1.0 licensed<br>
     The fastest of the 3 options and the one used by default.
@@ -71,7 +71,7 @@ You can choose between 3 different implementations of the shake and cshake funct
     Dual licensed under Apache 2.0 and MIT.
   - const-hash<br>
     Dual licensed under Apache 2.0 and MIT.<br>
-    Based on a fork of [keccak-const](https://crates.io/crates/keccak-const) that adds cShake variants.<br>
+    Based on a fork of [keccak-const](https://crates.io/crates/keccak-const) that adds cShake and KMac variants.<br>
     Much slower but the hash functions are [const fn](https://doc.rust-lang.org/reference/const_eval.html#const-functions).
 
 You can tweak the const parameters (mentioned in the implementation details above) with the features:

@@ -216,7 +216,6 @@ mod verify {
 
 use crate::hasher::MerkleHasher;
 #[cfg(any(test, feature = "debug"))]
-use crate::hex::Hex;
 #[cfg(feature = "verify")]
 pub use verify::*;
 
@@ -234,7 +233,8 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
     merkle_root: &[u8],
     i: usize,
 ) -> usize {
-    let hash: [u8; 16] = MerkleHasher::<16>::hash_with_custom_domain(
+    let hash: [u8; 16] = MerkleHasher::<16>::custom_domain_hash_with_prefix(
+        b"challenge_index",
         merkle_root,
         (i as u64).to_le_bytes().as_slice(),
     );
@@ -242,30 +242,6 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
     let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
     let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
     let offset = chain * CHAIN_BLOCK_COUNT;
-    (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
-}
-
-pub fn index_log<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT: usize>(
-    merkle_root: &[u8],
-    i: usize,
-    #[allow(unused_variables)] printer: impl DebugPrinter,
-) -> usize {
-    #[cfg(feature = "debug")]
-    printer.debug_println(&format!("root: {:x}", Hex(merkle_root)));
-    let hash: [u8; 16] = MerkleHasher::<16>::hash_with_custom_domain(
-        merkle_root,
-        (i as u64).to_le_bytes().as_slice(),
-    );
-    #[cfg(feature = "debug")]
-    printer.debug_println(&format!("hash with custom domain: {:x}", Hex(&hash)));
-    let seed = u64::from_le_bytes(hash[..8].try_into().unwrap()) as u128;
-    let chain_seed = u64::from_le_bytes(hash[8..16].try_into().unwrap()) as u128;
-    let chain = ((chain_seed * CHAIN_COUNT as u128) / U64_VALUE_COUNT) as usize;
-    #[cfg(feature = "debug")]
-    printer.debug_println(&format!("chain: {chain}"));
-    let offset = chain * CHAIN_BLOCK_COUNT;
-    #[cfg(feature = "debug")]
-    printer.debug_println(&format!("offset: {offset}"));
     (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
 }
 
@@ -330,16 +306,16 @@ mod tests {
         let root = 0x920eb8ea58ee2654f6363b99e7da4e62_u128.to_be_bytes();
         let indices = DefaultGenerator::select_indices(&root);
         assert_eq!(indices.len(), DEFAULT_STEP_COUNT);
-        assert_eq!(indices[0], 116496);
-        assert_eq!(indices[1], 678637);
-        assert_eq!(indices[2], 923405);
-        assert_eq!(indices[3], 59170);
-        assert_eq!(indices[4], 319063);
-        assert_eq!(indices[5], 958704);
-        assert_eq!(indices[6], 162644);
-        assert_eq!(indices[7], 1001015);
-        assert_eq!(indices[8], 119336);
-        assert_eq!(indices[9], 980930);
+        assert_eq!(indices[0], 177154);
+        assert_eq!(indices[1], 104705);
+        assert_eq!(indices[2], 596);
+        assert_eq!(indices[3], 30956);
+        assert_eq!(indices[4], 844229);
+        assert_eq!(indices[5], 106205);
+        assert_eq!(indices[6], 421950);
+        assert_eq!(indices[7], 731465);
+        assert_eq!(indices[8], 167999);
+        assert_eq!(indices[9], 881981);
     }
 
     #[test]
@@ -368,8 +344,8 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "e7e9e62c96ab862d1fd401d9e941ad244b0d9b7b75e05d813b3e45218a083dc7",
-            hash
+            hash,
+            "c0071cadb182b2d77fd1c6ebe9632a63396a59b5d7a3526166d10acb70763bcf"
         );
         DefaultGenerator::generate_allocated_chain(
             1,
@@ -384,8 +360,8 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "3a527fd2a07faf360d1e3292e683e2c5f573533aa5facbf48519865070331202",
-            hash
+            hash,
+            "6f1f34e5dc0a8873003f06dde036735ef5c278993c0ff6b9681a4f12c63ae187"
         );
         let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter, ProgressPrinter);
         let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter, ProgressPrinter);
@@ -400,8 +376,8 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "e7e9e62c96ab862d1fd401d9e941ad244b0d9b7b75e05d813b3e45218a083dc7",
-            hash
+            hash,
+            "c0071cadb182b2d77fd1c6ebe9632a63396a59b5d7a3526166d10acb70763bcf"
         );
         let chain = Box::into_raw(chain2) as *mut u8;
         let chain = unsafe {
@@ -413,14 +389,14 @@ mod tests {
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "3a527fd2a07faf360d1e3292e683e2c5f573533aa5facbf48519865070331202",
-            hash
+            hash,
+            "6f1f34e5dc0a8873003f06dde036735ef5c278993c0ff6b9681a4f12c63ae187",
         );
         let hash = Sha256::default().chain_update(proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "74fadde9b21ac7dc6b8978cbe425cc2eca6a78117ef426cf77d915e1192c08da",
-            hash
+            hash,
+            "0654929e517a42bf0460cae5ba119e14166e45358dbe4ae72bb43b74c177d00e",
         );
     }
 
@@ -431,8 +407,8 @@ mod tests {
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "5d2ca36b69fc996a3c16f088dfc0762ce9609adef811a0dce09ab308a9dd6d8c",
-            hash
+            hash,
+            "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece",
         );
         let verified = verify_proof(&nonce, &proof);
         assert!(verified.is_some());
@@ -450,8 +426,8 @@ mod tests {
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(
-            "5d2ca36b69fc996a3c16f088dfc0762ce9609adef811a0dce09ab308a9dd6d8c",
-            hash
+            hash,
+            "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece"
         );
         let verified = verify_proof(&nonce, &proof);
         assert!(verified.is_some());

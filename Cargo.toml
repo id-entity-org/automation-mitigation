@@ -22,7 +22,7 @@ features = []
 [workspace.dependencies.tiny-keccak]
 version = "2.0"
 default-features = false
-features = ["cshake", "shake"]
+features = ["cshake"]
 
 [workspace.dependencies.sha3]
 version = "0.10"

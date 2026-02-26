@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 path = "../pow"
 package = "automation-mitigation-pow"
 default-features = false
-features = ["generate", "tiny-keccak", "progress"]
+features = ["generate", "tiny-keccak", "progress", "high-cpu", "high-memory"]
 
 [profile.release]
 lto = "fat"

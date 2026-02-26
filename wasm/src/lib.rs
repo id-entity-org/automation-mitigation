@@ -56,6 +56,10 @@ pub static CHAIN_COUNT_PTR: usize = DEFAULT_CHAIN_COUNT;
 pub static ITERATION_COUNT_PTR: usize = DEFAULT_ITERATION_COUNT;
 
 /// Generates a chain of blocks.
+///
+/// # Safety
+/// Nonce size is always 16 bytes.
+/// Chain size is known from const variable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut u8 {
     let nonce: &[u8; 16] = unsafe {
@@ -69,6 +73,10 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut 
 }
 
 /// Returns the hashes of the blocks (converts a slice of blocks to an array of hashes).
+///
+/// # Safety
+/// Pointer points to a chain whose size is known from const variable.
+/// Hash chain size is also known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
@@ -101,6 +109,10 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
 // }
 
 /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
+///
+/// # Safety
+/// Pointer points to chains whose size are known from const variable.
+/// State size is also known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn build_state(
     hash_chains_ptr: *const usize,
@@ -116,6 +128,9 @@ pub unsafe extern "C" fn build_state(
 }
 
 /// Returns the root of the merkle tree.
+///
+/// # Safety
+/// Merkle tree and root sizes are known from const variable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn root(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut u8 {
     let root = pow::root(unsafe { &*state });
@@ -123,15 +138,21 @@ pub unsafe extern "C" fn root(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut 
 }
 
 /// Returns the proof of work indices from (a reference of) the state.
+///
+/// # Safety
+/// Pointer points to the merkle root whose size is known from const variable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn select_indices(root: *const u8) -> *mut usize {
     let root = unsafe { &*(root as *const [u8; DEFAULT_HASH_LENGTH]) };
-    let indices = pow::select_indices(&root);
+    let indices = pow::select_indices(root);
     Box::into_raw(indices) as *mut usize
 }
 
 /// Returns the proof of work reference indices from (a reference of) the indices
 /// and (references of) the parent blocks.
+///
+/// # Safety
+/// Pointers point to objects whose sizes are known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn select_reference_indices(
     indices: *const usize,
@@ -148,6 +169,9 @@ pub unsafe extern "C" fn select_reference_indices(
 
 /// Returns the proof of work from the state (consumed), the indices (consumed),
 /// the reference indices (consumed), the parent blocks (consumed) and the reference blocks (consumed)
+///
+/// # Safety
+/// Pointers point to objects whose sizes are known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn combine(
     state: *mut State<DEFAULT_HASH_LENGTH>,
@@ -185,6 +209,8 @@ pub unsafe extern "C" fn combine(
     unsafe { Box::from_raw(Box::into_raw(ptr_and_len.into_boxed_slice()) as *mut [u8; 8]) }
 }
 
+/// # Safety
+/// Nonce size is always 16 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_nonce() -> *mut u8 {
     let mut vec = Vec::<u8>::with_capacity(16);
@@ -193,11 +219,15 @@ pub unsafe extern "C" fn alloc_nonce() -> *mut u8 {
     ptr
 }
 
+/// # Safety
+/// Nonce size is always 16 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
     unsafe { Vec::from_raw_parts(ptr, 0, 16) };
 }
 
+/// # Safety
+/// Hash chain size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
     let hash_chain: Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> =
@@ -205,6 +235,8 @@ pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
     Box::into_raw(hash_chain) as *mut u8
 }
 
+/// # Safety
+/// Hash chain count and size are known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_hash_chains() -> *mut usize {
     let mut vec = Vec::<usize>::with_capacity(DEFAULT_CHAIN_COUNT);
@@ -213,6 +245,8 @@ pub unsafe extern "C" fn alloc_hash_chains() -> *mut usize {
     ptr
 }
 
+/// # Safety
+/// Blocks size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
     let blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> =

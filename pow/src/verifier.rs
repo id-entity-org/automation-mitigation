@@ -76,11 +76,16 @@ where
         reference_block: &Block<BLOCK_SIZE>,
     ) -> Block<BLOCK_SIZE> {
         let mut hash = [0u8; 64];
-        MerkleHasher::hash_with_custom_domain_into(parent_block, reference_block, &mut hash);
-        for _ in 0..ITERATION_COUNT {
-            MerkleHasher::hash_self(&mut hash);
+        MerkleHasher::custom_domain_hash_with_prefix_into(
+            b"initial",
+            parent_block,
+            reference_block,
+            &mut hash,
+        );
+        for i in 0..ITERATION_COUNT {
+            MerkleHasher::custom_domain_hash_self((i as u16).to_be_bytes().as_slice(), &mut hash);
         }
-        MerkleHasher::hash_with_custom_domain(nonce, &hash)
+        MerkleHasher::custom_domain_hash_with_prefix(b"final", nonce, &hash)
     }
 }
 

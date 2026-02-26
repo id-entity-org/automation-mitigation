@@ -214,7 +214,7 @@ where
     }
 
     pub fn combine(
-        state: Box<State<HASH_LENGTH>>,
+        #[allow(clippy::boxed_local)] state: Box<State<HASH_LENGTH>>,
         root: &[u8; HASH_LENGTH],
         indices: &[usize; STEP_COUNT],
         reference_indices: &[usize; STEP_COUNT],
@@ -321,18 +321,21 @@ where
         hash: &mut [u8; 64],
     ) {
         // SAFETY: We know blocks[index - 1] and block[reference_index] are already initialized.
-        MerkleHasher::hash_with_custom_domain_into(
+        MerkleHasher::custom_domain_hash_with_prefix_into(
+            b"initial",
             unsafe { blocks[index - 1].assume_init_ref() },
             unsafe { blocks[reference_index].assume_init_ref() },
             hash,
         );
-        for _ in 0..ITERATION_COUNT {
-            MerkleHasher::hash_self(hash);
+        for i in 0..ITERATION_COUNT {
+            MerkleHasher::custom_domain_hash_self((i as u16).to_be_bytes().as_slice(), hash);
         }
         // SAFETY: The hasher will fill the block without reading the bytes.
         let block = unsafe {
             core::slice::from_raw_parts_mut(blocks[index].as_mut_ptr() as *mut u8, BLOCK_SIZE)
         };
-        MerkleHasher::<BLOCK_SIZE>::hash_with_custom_domain_into_slice(nonce, hash, block);
+        MerkleHasher::<BLOCK_SIZE>::custom_domain_hash_with_prefix_into_slice(
+            b"final", nonce, hash, block,
+        );
     }
 }
