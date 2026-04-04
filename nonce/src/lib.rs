@@ -1,16 +1,8 @@
-#[cfg(all(
-    feature = "const-hash",
-    not(any(feature = "tiny-keccak", feature = "rust-crypto"))
-))]
-use keccak_const::CShake256;
-#[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
-use sha3::{digest::*, CShake256Core};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 use std::time::UNIX_EPOCH;
 use std::{ptr, thread};
-#[cfg(feature = "tiny-keccak")]
 use tiny_keccak::{CShake, Hasher};
 
 pub struct VerifiableNonce {
@@ -40,38 +32,12 @@ impl<const MAX: usize> NonceProducer<MAX> {
     }
     fn k_nonce(&self, k: usize) -> [u8; 16] {
         let mut nonce = [0u8; 16];
-        #[cfg(feature = "tiny-keccak")]
-        {
-            let mut hasher = CShake::v256(b"kdf", b"nonce");
-            hasher.update(self.mac_key.as_slice());
-            hasher.update(self.generation.to_le_bytes().as_slice());
-            hasher.update((k as u64).to_le_bytes().as_slice());
-            hasher.update(self.iv.as_slice());
-            hasher.finalize(&mut nonce);
-        }
-        #[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
-        {
-            let core = CShake256Core::new_with_function_name(b"kdf", b"nonce");
-            let mut hasher = sha3::CShake256::from_core(core);
-            hasher.update(self.mac_key.as_slice());
-            hasher.update(self.generation.to_le_bytes().as_slice());
-            hasher.update((k as u64).to_le_bytes().as_slice());
-            hasher.update(self.iv.as_slice());
-            let mut reader = hasher.finalize_xof();
-            reader.read(&mut nonce);
-        }
-        #[cfg(all(
-            feature = "const-hash",
-            not(any(feature = "tiny-keccak", feature = "rust-crypto"))
-        ))]
-        {
-            CShake256::new(b"kdf", b"nonce")
-                .update(self.mac_key.as_slice())
-                .update(self.generation.to_le_bytes().as_slice())
-                .update((k as u64).to_le_bytes().as_slice())
-                .update(self.iv.as_slice())
-                .finalize_into(&mut nonce);
-        }
+        let mut hasher = CShake::v256(b"kdf", b"nonce");
+        hasher.update(self.mac_key.as_slice());
+        hasher.update(self.generation.to_le_bytes().as_slice());
+        hasher.update((k as u64).to_le_bytes().as_slice());
+        hasher.update(self.iv.as_slice());
+        hasher.finalize(&mut nonce);
         nonce
     }
     pub fn nonce(&self) -> Option<(usize, [u8; 16])> {
@@ -107,44 +73,12 @@ impl<const MAX: usize> NonceProducer<MAX> {
             .ok()
     }
     fn generate(generation: u16, seed: &[u8; 32]) -> Self {
-        #[cfg(feature = "tiny-keccak")]
         let (iv, mac_key) = {
             let mut hasher = CShake::v256(b"kdf", b"key");
             hasher.update(seed);
             hasher.update(generation.to_le_bytes().as_slice());
             let mut out = [0u8; 64];
             hasher.finalize(&mut out);
-            let mut iv = [0u8; 32];
-            iv.copy_from_slice(&out[..32]);
-            let mut mac_key = [0u8; 32];
-            mac_key.copy_from_slice(&out[32..]);
-            (iv, mac_key)
-        };
-        #[cfg(all(feature = "rust-crypto", not(feature = "tiny-keccak")))]
-        let (iv, mac_key) = {
-            let core = CShake256Core::new_with_function_name(b"kdf", b"key");
-            let mut hasher = sha3::CShake256::from_core(core);
-            hasher.update(seed.as_slice());
-            hasher.update(generation.to_le_bytes().as_slice());
-            let mut reader = hasher.finalize_xof();
-            let mut out = [0u8; 64];
-            reader.read(&mut out);
-            let mut iv = [0u8; 32];
-            iv.copy_from_slice(&out[..32]);
-            let mut mac_key = [0u8; 32];
-            mac_key.copy_from_slice(&out[32..]);
-            (iv, mac_key)
-        };
-        #[cfg(all(
-            feature = "const-hash",
-            not(any(feature = "tiny-keccak", feature = "rust-crypto"))
-        ))]
-        let (iv, mac_key) = {
-            let mut out = [0u8; 64];
-            CShake256::new(b"kdf", b"key")
-                .update(seed.as_slice())
-                .update(generation.to_le_bytes().as_slice())
-                .finalize_into(&mut out);
             let mut iv = [0u8; 32];
             iv.copy_from_slice(&out[..32]);
             let mut mac_key = [0u8; 32];

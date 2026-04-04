@@ -6,20 +6,5 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
-[dependencies.keccak-const]
-workspace = true
-optional = true
-
 [dependencies.tiny-keccak]
 workspace = true
-optional = true
-
-[dependencies.sha3]
-workspace = true
-optional = true
-
-[features]
-default = ["tiny-keccak"]
-tiny-keccak = ["dep:tiny-keccak"]
-rust-crypto = ["dep:sha3"]
-const-hash = ["dep:keccak-const"]

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "read-cwd": {
+      "read": [
+        "."
+      ]
+    }
+  },
+  "tasks": {
+    "test": "deno test -P=read-cwd"
+  },
+  "imports": {
+    "asserts": "https://deno.land/std/testing/asserts.ts"
+  },
+  "lock": false
+}

@@ -39,7 +39,7 @@ link.setAttribute('download',nonce.toHex());
 const t0=Date.now();
 const abortController=new AbortController();
 const onProgress=progress=>{
-  console.log(`${progress*100}%`);
+  console.log(`${Math.round(progress*100)}%`);
 }
 const proof=await pow(nonce,abortController.signal,onProgress);
 const t1=Date.now();
