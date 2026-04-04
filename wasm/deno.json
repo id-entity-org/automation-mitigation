@@ -4,10 +4,27 @@
       "read": [
         "."
       ]
+    },
+    "minimize": {
+      "read": true,
+      "write": [
+        "lib-min.mjs",
+        "lib-high-cpu.mjs",
+        "lib-high-mem.mjs",
+        "lib-high.mjs"
+      ],
+      "run": true,
+      "env": true
     }
   },
   "tasks": {
-    "test": "deno test -P=read-cwd"
+    "test": "deno test -P=read-cwd",
+    "build-default": "cargo build --release && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib.wasm",
+    "build-high-cpu": "cargo build --release --no-default-features --features high-cpu && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high-cpu.wasm",
+    "build-high-mem": "cargo build --release --no-default-features --features high-memory && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high-mem.wasm",
+    "build-high": "cargo build --release --no-default-features --features high-memory,high-cpu && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high.wasm",
+    "build": "deno task \"build-*\" && ./br && rm ./deno.json.br && rm ./deno_test.mjs.br && rm ./minimize.mjs.br && rm ./test.html.br",
+    "minimize": "deno run -P=minimize minimize.mjs"
   },
   "imports": {
     "asserts": "https://deno.land/std/testing/asserts.ts"
