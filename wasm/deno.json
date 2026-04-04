@@ -19,7 +19,7 @@
   },
   "tasks": {
     "test": "deno test -P=read-cwd",
-    "build-default": "cargo build --release && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib.wasm",
+    "build-default": "cargo build --release --no-default-features && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib.wasm",
     "build-high-cpu": "cargo build --release --no-default-features --features high-cpu && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high-cpu.wasm",
     "build-high-mem": "cargo build --release --no-default-features --features high-memory && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high-mem.wasm",
     "build-high": "cargo build --release --no-default-features --features high-memory,high-cpu && cp ../target/wasm32-unknown-unknown/release/automation_mitigation_wasm.wasm ./lib-high.wasm",

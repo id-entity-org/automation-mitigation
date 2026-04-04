@@ -18,7 +18,8 @@ default-features = false
 features = []
 
 [features]
-default = ["generate", "verify", "debug", "progress", "high-memory", "high-cpu"]
+#default = ["generate", "verify", "debug", "progress", "high-memory", "high-cpu"]
+default = ["generate", "verify", "debug", "progress", "high-cpu"]
 generate = []
 verify = []
 debug = []

@@ -92,22 +92,6 @@ pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
     Box::into_raw(hash_chain) as *mut u8
 }
 
-// /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
-// #[unsafe(no_mangle)]
-// pub unsafe extern "C" fn build_state(
-//     hash_chain1_ptr: *const u8,
-//     hash_chain2_ptr: *const u8,
-// ) -> *mut State<DEFAULT_HASH_LENGTH> {
-//     let chain1 = unsafe {
-//         &*(hash_chain1_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
-//     };
-//     let chain2 = unsafe {
-//         &*(hash_chain2_ptr as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
-//     };
-//     let state = pow::build_state(&[&chain1, &chain2]);
-//     Box::into_raw(state)
-// }
-
 /// Converts the two arrays of hashes into the state (a merkle tree of the combination).
 ///
 /// # Safety

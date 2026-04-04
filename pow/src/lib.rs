@@ -272,7 +272,6 @@ mod tests {
     use std::mem::MaybeUninit;
     use std::sync::atomic::AtomicU8;
     use std::thread;
-    use std::time::UNIX_EPOCH;
 
     #[derive(Copy, Clone)]
     pub struct NoDebugPrinter;
@@ -306,20 +305,67 @@ mod tests {
         let root = 0x920eb8ea58ee2654f6363b99e7da4e62_u128.to_be_bytes();
         let indices = DefaultGenerator::select_indices(&root);
         assert_eq!(indices.len(), DEFAULT_STEP_COUNT);
-        assert_eq!(indices[0], 177154);
-        assert_eq!(indices[1], 104705);
-        assert_eq!(indices[2], 596);
-        assert_eq!(indices[3], 30956);
-        assert_eq!(indices[4], 844229);
-        assert_eq!(indices[5], 106205);
-        assert_eq!(indices[6], 421950);
-        assert_eq!(indices[7], 731465);
-        assert_eq!(indices[8], 167999);
-        assert_eq!(indices[9], 881981);
+        #[cfg(not(feature = "high-memory"))]
+        {
+            println!("low");
+            assert_eq!(indices[0], 88577);
+            assert_eq!(indices[1], 52353);
+            assert_eq!(indices[2], 299);
+            assert_eq!(indices[3], 15479);
+            assert_eq!(indices[4], 422115);
+            assert_eq!(indices[5], 53103);
+            assert_eq!(indices[6], 210975);
+            assert_eq!(indices[7], 365733);
+            assert_eq!(indices[8], 84000);
+            assert_eq!(indices[9], 440990);
+        }
+        #[cfg(feature = "high-memory")]
+        {
+            println!("high memory");
+            assert_eq!(indices[0], 177154);
+            assert_eq!(indices[1], 104705);
+            assert_eq!(indices[2], 596);
+            assert_eq!(indices[3], 30956);
+            assert_eq!(indices[4], 844229);
+            assert_eq!(indices[5], 106205);
+            assert_eq!(indices[6], 421950);
+            assert_eq!(indices[7], 731465);
+            assert_eq!(indices[8], 167999);
+            assert_eq!(indices[9], 881981);
+        }
     }
 
     #[test]
     fn test_generate_chain_default() {
+        #[cfg(all(not(feature = "high-cpu"), not(feature = "high-memory")))]
+        let (hash_chain_0, hash_chain_1, hash_proof) = {
+            let hash_chain_0 = "ecc608c7fe3a3882674dae62e37ba5ab35d65b209cb7275d5f6058baf83caa2f";
+            let hash_chain_1 = "5f1a91de40c65bc92194db3c8bd7c2aeceb559986506f3576b8be0626241307f";
+            let hash_proof = "3b44d3f3762e1d6a757bb65b110c1f358f2a30c63636c780370e4379e4ea273a";
+            (hash_chain_0, hash_chain_1, hash_proof)
+        };
+        #[cfg(all(feature = "high-cpu", not(feature = "high-memory")))]
+        let (hash_chain_0, hash_chain_1, hash_proof) = {
+            let hash_chain_0 = "cfa03744b21e96ba7ac7805bf564928ea627e421f82b86b83420c90d82c67fd9";
+            let hash_chain_1 = "536b1078a247e5f3962d694898185b4f395ba6351f7df9541c680439a06fcddd";
+            let hash_proof = "0918856e32785ca82551af68fd8b4417471742c094964ede4d706a314ce46dd8";
+            (hash_chain_0, hash_chain_1, hash_proof)
+        };
+        #[cfg(all(feature = "high-memory", not(feature = "high-cpu")))]
+        let (hash_chain_0, hash_chain_1, hash_proof) = {
+            let hash_chain_0 = "04fea7a3b95beae299bc49c9844faedccb8e028c677cddaca51f28c992b4840a";
+            let hash_chain_1 = "7ebd5c508585c34c62a218107047f2f27c569a2e36541a5b6ef44432f8f9585a";
+            let hash_proof = "cfd2f0644f82a4c8fa47fc2102a73d5c7b84fee637d88c2436f359b1a700df80";
+            (hash_chain_0, hash_chain_1, hash_proof)
+        };
+        #[cfg(all(feature = "high-memory", feature = "high-cpu"))]
+        let (hash_chain_0, hash_chain_1, hash_proof) = {
+            let hash_chain_0 = "c0071cadb182b2d77fd1c6ebe9632a63396a59b5d7a3526166d10acb70763bcf";
+            let hash_chain_1 = "6f1f34e5dc0a8873003f06dde036735ef5c278993c0ff6b9681a4f12c63ae187";
+            let hash_proof = "0654929e517a42bf0460cae5ba119e14166e45358dbe4ae72bb43b74c177d00e";
+            (hash_chain_0, hash_chain_1, hash_proof)
+        };
+
         let nonce = 0x8b7df143d91c716ecfa5fc1730022f6b_u128.to_be_bytes();
         let mut chain = vec![0u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT];
         let ptr = chain.as_mut_ptr() as *mut [u8; DEFAULT_BLOCK_SIZE];
@@ -343,10 +389,7 @@ mod tests {
             .finalize()
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "c0071cadb182b2d77fd1c6ebe9632a63396a59b5d7a3526166d10acb70763bcf"
-        );
+        assert_eq!(hash, hash_chain_0);
         DefaultGenerator::generate_allocated_chain(
             1,
             &nonce,
@@ -359,10 +402,7 @@ mod tests {
             .finalize()
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "6f1f34e5dc0a8873003f06dde036735ef5c278993c0ff6b9681a4f12c63ae187"
-        );
+        assert_eq!(hash, hash_chain_1);
         let chain1 = DefaultGenerator::generate_chain(0, &nonce, StdDebugPrinter, ProgressPrinter);
         let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter, ProgressPrinter);
         let proof = combine_chains(&[&chain1, &chain2], StdDebugPrinter);
@@ -375,10 +415,7 @@ mod tests {
             .finalize()
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "c0071cadb182b2d77fd1c6ebe9632a63396a59b5d7a3526166d10acb70763bcf"
-        );
+        assert_eq!(hash, hash_chain_0);
         let chain = Box::into_raw(chain2) as *mut u8;
         let chain = unsafe {
             Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_CHAIN_BLOCK_COUNT])
@@ -388,28 +425,28 @@ mod tests {
             .finalize()
             .to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "6f1f34e5dc0a8873003f06dde036735ef5c278993c0ff6b9681a4f12c63ae187",
-        );
+        assert_eq!(hash, hash_chain_1);
         let hash = Sha256::default().chain_update(proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "0654929e517a42bf0460cae5ba119e14166e45358dbe4ae72bb43b74c177d00e",
-        );
+        assert_eq!(hash, hash_proof,);
     }
 
     #[test]
     fn test_generate_serial_and_verify_proof_default() {
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
+        #[cfg(all(not(feature = "high-cpu"), not(feature = "high-memory")))]
+        let hash_proof = "be04c35e9d55d41b58f1578c2b60f487471e480b506343eb19873dda4438f277";
+        #[cfg(all(feature = "high-cpu", not(feature = "high-memory")))]
+        let hash_proof = "4f29dbf5f60c027c0e22696d8a109c89cb5d433eb655d96e45f7df5e7d00ef1f";
+        #[cfg(all(feature = "high-memory", not(feature = "high-cpu")))]
+        let hash_proof = "48d5b0ba240fcf211dede5f950108bcf081e453c48e1d8bb20b413290c163b6f";
+        #[cfg(all(feature = "high-memory", feature = "high-cpu"))]
+        let hash_proof = "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece";
+
         let proof = generate_proof(&nonce, StdDebugPrinter, ProgressPrinter);
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece",
-        );
+        assert_eq!(hash, hash_proof,);
         let verified = verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -418,17 +455,20 @@ mod tests {
     fn test_generate_parallel_and_verify_proof_default() {
         type TestChallenge = Challenge;
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
-        let t0 = UNIX_EPOCH.elapsed().unwrap();
+        #[cfg(all(not(feature = "high-cpu"), not(feature = "high-memory")))]
+        let hash_proof = "be04c35e9d55d41b58f1578c2b60f487471e480b506343eb19873dda4438f277";
+        #[cfg(all(feature = "high-cpu", not(feature = "high-memory")))]
+        let hash_proof = "4f29dbf5f60c027c0e22696d8a109c89cb5d433eb655d96e45f7df5e7d00ef1f";
+        #[cfg(all(feature = "high-memory", not(feature = "high-cpu")))]
+        let hash_proof = "48d5b0ba240fcf211dede5f950108bcf081e453c48e1d8bb20b413290c163b6f";
+        #[cfg(all(feature = "high-memory", feature = "high-cpu"))]
+        let hash_proof = "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece";
+
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, NoDebugPrinter, ProgressPrinter);
-        let elapsed = UNIX_EPOCH.elapsed().unwrap() - t0;
-        println!("{}ms", elapsed.as_millis());
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
         let hash = format!("{:x}", Hex(&hash));
-        assert_eq!(
-            hash,
-            "f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece"
-        );
+        assert_eq!(hash, hash_proof);
         let verified = verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -446,6 +486,7 @@ mod tests {
         let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_be_bytes();
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
+
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
@@ -454,8 +495,13 @@ mod tests {
     fn test_generate_in_parallel_and_verify_proof_non_default() {
         type TestChallenge = Challenge<4, 5, 262_144, 1024, 6, 32>;
         let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_be_bytes();
+        let hash_proof = "76faf3439e5183746339d5aedb81827285b53065b54545da7d2b19537eb9f21b";
+
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
+        let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
+        let hash = format!("{:x}", Hex(&hash));
+        assert_eq!(hash, hash_proof);
         let verified = TestChallenge::verify_proof(&nonce, &proof);
         assert!(verified.is_some());
     }
