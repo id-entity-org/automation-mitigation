@@ -53,7 +53,7 @@ In that case, the client should restart the process when the expiration is immin
 
 **Client-side components**
  
-- `lib.wasm`<br>
+- `wasm/dist/lib.wasm`<br>
  
 This is the WebAssembly code with the optimized implementation of the proof of work algorithm.
 The implementation is split in multiple steps to allow parallel computation using multiple web workers.
@@ -71,7 +71,7 @@ upon interaction to save resources, but the submission is almost immediate (ther
 Since the user will naturally spend more time on the form, the additional time required to compute the proof 
 will not impact the user experience.
 
-- `lib.mjs`<br>
+- `wasm/dist/lib.mjs`<br>
 
 This is a Javascript module that exports an async function to actually create the proof of work for a given nonce.
 It makes use of the wasm module described above.<br>
@@ -94,7 +94,9 @@ For each form submission, the server must:
 
 The [pow](./pow) crate (with the `verify` feature enabled) exports a `verify_proof` function:<br>
 ```rust
-pub fn verify_proof(nonce: &[u8; 16], proof: &[u8]) -> Option<()>
+pub fn verify_proof(nonce: &[u8; 16], proof: &[u8]) -> Option<()> {
+    ...
+}
 ```
 
 If your server is not implemented in [Rust](https://rust-lang.org/),

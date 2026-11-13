@@ -20,8 +20,3 @@ default = ["high-cpu"]
 high-cpu = ["pow/high-cpu"]
 high-memory = ["pow/high-memory"]
 
-[profile.release]
-lto = "fat"
-opt-level = 3
-codegen-units = 1
-panic = "abort"

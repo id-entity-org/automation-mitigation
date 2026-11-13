@@ -1,0 +1,19 @@
+{
+  "name": "automation-mitigation-wasm",
+  "private": true,
+  "scripts": {
+    "test": "node --experimental-web-worker --import ./file-fetch.mjs --test --test-timeout=120000 lib.test.mjs",
+    "build": "node build/build.mjs",
+    "minimize": "node build/minimize.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.10.0",
+      "onFail": "ignore"
+    }
+  }
+}

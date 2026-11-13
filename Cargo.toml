@@ -33,3 +33,9 @@ overflow-checks = true
 
 [profile.test]
 inherits = "dev"
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+panic = "abort"

@@ -1,10 +1,17 @@
-import {build,stop} from 'https://deno.land/x/esbuild/mod.js';
+import {mkdir,readFile} from 'node:fs/promises';
+import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
+
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const dist=join(root,'dist');
+await mkdir(dist,{recursive:true});
 for(const suffix of ['','-high','-high-mem','-high-cpu']){
   const result=await build({
-    entryPoints:[`lib.mjs`],
+    entryPoints:[join(root,'lib.mjs')],
     bundle:false,
     minify:true,
-    outfile:`lib${suffix}-min.mjs`,
+    outfile:join(dist,`lib${suffix}-min.mjs`),
     format:"esm",
     platform:"browser",
     target:"esnext",
@@ -15,7 +22,7 @@ for(const suffix of ['','-high','-high-mem','-high-cpu']){
           build.onLoad(
             {filter:/lib.mjs$/},
             async(args)=>{
-              const contents=(await Deno.readTextFile(args.path)).replace(
+              const contents=(await readFile(args.path,'utf8')).replace(
                 /const url=new URL\('lib-high.wasm',import.meta.url\);/,
                 `const url=new URL('lib${suffix}.wasm',import.meta.url);`
               );
@@ -28,7 +35,6 @@ for(const suffix of ['','-high','-high-mem','-high-cpu']){
   });
   if(result.errors.length>0){
     console.error(result.errors);
-    Deno.exit(1);
+    process.exit(1);
   }
 }
-stop();
