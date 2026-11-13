@@ -9,30 +9,37 @@ const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGloba
  * @return {Promise<Uint8Array>}
  */
 const pow=async(nonce,signal,onProgress=_=>{})=>{
+  if(signal) signal.throwIfAborted();
   const random=crypto.getRandomValues(new Uint8Array(16));
   const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',random)).toHex();
   const worker=await new Promise((resolve,reject)=>{
     const worker=new Worker(import.meta.url,{type:'module',credentials:'omit',name:`${hash}-0`});
-    worker.onerror=_=>reject();
+    worker.onerror=_=>{
+      signal?.removeEventListener('abort',worker.onerror);
+      worker.terminate();
+      reject();
+    };
+    if(signal?.aborted) return worker.onerror();
+    if(signal) signal.addEventListener('abort',worker.onerror);
     worker.onmessage=({data})=>{
       if(typeof data==='object'){
         const {hash:h,ready}=data;
         if(h===hash&&ready){
+          signal?.removeEventListener('abort',worker.onerror);
           worker.onmessage=null;
           resolve(worker);
         }
       }
     };
   });
-  if(signal) signal.throwIfAborted();
   let progress=0;
   return await new Promise((resolve,reject)=>{
-    if(signal?.aborted) return reject();
     worker.onerror=_=>{
       worker.postMessage({hash,terminate:true});
       worker.terminate();
       reject();
-    }
+    };
+    if(signal?.aborted) return worker.onerror();
     if(signal) signal.addEventListener('abort',worker.onerror);
     worker.onmessage=({data})=>{
       if(typeof data==='object'){
@@ -50,7 +57,7 @@ const pow=async(nonce,signal,onProgress=_=>{})=>{
       }
     };
     worker.postMessage({hash,nonce});
-  });
+  }).finally(()=>signal?.removeEventListener('abort',worker.onerror));
 };
 export default pow;
 if(isWorker){
@@ -99,90 +106,94 @@ if(isWorker){
     });
     const workers=Promise.all(Array.from({length:CHAIN_COUNT},(_,i)=>initWorker(i+1)));
     onmessage=async({data})=>{
-      if(typeof data==='object'){
-        const {hash:h,terminate,nonce}=data;
-        if(h===hash){
-          if(terminate){
-            (await workers).forEach(it=>it.terminate());
-            return globalThis.terminate();
-          }
-          if(nonce instanceof Uint8Array){
-            if(nonce.length!==16) throw new Error('nonce must be 16 bytes long');
-            const results=await Promise.all((await workers).map((worker,n)=>new Promise((resolve,reject)=>{
-              worker.onerror=_=>reject();
-              const channel=new MessageChannel();
-              channel.port1.onmessage=({data})=>{
-                channel.port1.onmessage=null;
-                resolve({hashChain:data,worker,channel});
+      try{
+        if(typeof data==='object'){
+          const {hash:h,terminate,nonce}=data;
+          if(h===hash){
+            if(terminate){
+              (await workers).forEach(it=>it.terminate());
+              return globalThis.close();
+            }
+            if(nonce instanceof Uint8Array){
+              if(nonce.length!==16) throw new Error('nonce must be 16 bytes long');
+              const results=await Promise.all((await workers).map((worker,n)=>new Promise((resolve,reject)=>{
+                worker.onerror=_=>reject();
+                const channel=new MessageChannel();
+                channel.port1.onmessage=({data})=>{
+                  channel.port1.onmessage=null;
+                  resolve({hashChain:data,worker,channel});
+                }
+                worker.postMessage({hash,nonce,n,port:channel.port2},[channel.port2]);
+              })));
+              postMessage({hash,progress_value:t1+t2,progress_max});
+              const hashChainsPtr=wasm.alloc_hash_chains();
+              results.forEach(({hashChain}, i)=>{
+                const hashChainPtr=wasm.alloc_hash_chain();
+                new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
+                new DataView(wasm.memory.buffer,hashChainsPtr+i*4).setUint32(0,hashChainPtr,true);
+              });
+              const statePtr=wasm.build_state(hashChainsPtr);
+              const rootPtr=wasm.root(statePtr);
+              postMessage({hash,progress_value:t1+t2*2,progress_max});
+              const parentBlocksPtr=wasm.alloc_blocks();
+              const indicesPtr=wasm.select_indices(rootPtr);
+              const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
+              const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlocksPtr,STEP_COUNT*BLOCK_SIZE);
+              for(let i=0;i<STEP_COUNT;++i){
+                const parentIndex=indices[i]-1;
+                const j=Math.trunc(parentIndex/CHAIN_BLOCK_COUNT);
+                const {worker,channel}=results[j];
+                const index=parentIndex%CHAIN_BLOCK_COUNT;
+                const block=await new Promise(resolve=>{
+                  channel.port1.onmessage=({data})=>{
+                    channel.port1.onmessage=null;
+                    resolve(data);
+                  }
+                  worker.postMessage({hash,index});
+                });
+                parentBlocks.set(block,i*BLOCK_SIZE);
               }
-              worker.postMessage({hash,nonce,n,port:channel.port2},[channel.port2]);
-            }))).catch(onerror);
-            postMessage({hash,progress_value:t1+t2,progress_max});
-            const hashChainsPtr=wasm.alloc_hash_chains();
-            results.forEach(({hashChain}, i)=>{
-              const hashChainPtr=wasm.alloc_hash_chain();
-              new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
-              new DataView(wasm.memory.buffer,hashChainsPtr+i*4).setUint32(0,hashChainPtr,true);
-            });
-            const statePtr=wasm.build_state(hashChainsPtr);
-            const rootPtr=wasm.root(statePtr);
-            postMessage({hash,progress_value:t1+t2*2,progress_max});
-            const indicesPtr=wasm.select_indices(rootPtr);
-            const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
-            const parentBlocksPtr=wasm.alloc_blocks();
-            const parentBlocks=new Uint8Array(wasm.memory.buffer,parentBlocksPtr,STEP_COUNT*BLOCK_SIZE);
-            for(let i=0;i<STEP_COUNT;++i){
-              const parentIndex=indices[i]-1;
-              const j=Math.trunc(parentIndex/CHAIN_BLOCK_COUNT);
-              const {worker,channel}=results[j];
-              const index=parentIndex%CHAIN_BLOCK_COUNT;
-              const block=await new Promise(resolve=>{
-                channel.port1.onmessage=({data})=>{
-                  channel.port1.onmessage=null;
-                  resolve(data);
-                }
-                worker.postMessage({hash,index});
-              });
-              parentBlocks.set(block,i*BLOCK_SIZE);
+              postMessage({hash,progress_value:t1+t2*2.5,progress_max});
+              const referenceBlocksPtr=wasm.alloc_blocks();
+              const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
+              const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
+              const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlocksPtr,STEP_COUNT*BLOCK_SIZE);
+              for(let i=0;i<STEP_COUNT;++i){
+                const referenceIndex=referenceIndices[i];
+                const j=Math.trunc(referenceIndex/CHAIN_BLOCK_COUNT);
+                const {worker,channel}=results[j];
+                const index=referenceIndex%CHAIN_BLOCK_COUNT;
+                const block=await new Promise(resolve=>{
+                  channel.port1.onmessage=({data})=>{
+                    channel.port1.onmessage=null;
+                    resolve(data);
+                  }
+                  worker.postMessage({hash,index});
+                });
+                referenceBlocks.set(block,i*BLOCK_SIZE);
+              }
+              (await workers).forEach(it=>it.terminate());
+              const ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
+              const [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
+              const proof=new Uint8Array(wasm.memory.buffer,ptr,len);
+              postMessage({hash,progress_value:progress_max,progress_max});
+              postMessage({hash,proof});
             }
-            postMessage({hash,progress_value:t1+t2*2.5,progress_max});
-            const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
-            const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
-            const referenceBlocksPtr=wasm.alloc_blocks();
-            const referenceBlocks=new Uint8Array(wasm.memory.buffer,referenceBlocksPtr,STEP_COUNT*BLOCK_SIZE);
-            for(let i=0;i<STEP_COUNT;++i){
-              const referenceIndex=referenceIndices[i];
-              const j=Math.trunc(referenceIndex/CHAIN_BLOCK_COUNT);
-              const {worker,channel}=results[j];
-              const index=referenceIndex%CHAIN_BLOCK_COUNT;
-              const block=await new Promise(resolve=>{
-                channel.port1.onmessage=({data})=>{
-                  channel.port1.onmessage=null;
-                  resolve(data);
-                }
-                worker.postMessage({hash,index});
-              });
-              referenceBlocks.set(block,i*BLOCK_SIZE);
-            }
-            (await workers).forEach(it=>it.terminate());
-            const ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
-            const [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
-            const proof=new Uint8Array(wasm.memory.buffer,ptr,len);
-            postMessage({hash,progress_value:progress_max,progress_max});
-            postMessage({hash,proof});
           }
         }
+      }catch(error){
+        globalThis.reportError(error);
       }
     }
   }else{ // chain worker
     let chainPtr=undefined;
     let port=undefined;
-    onmessage=async({data})=>{
+    onmessage=({data})=>{
       if(typeof data==='object'){
         const {hash:h,terminate,nonce,n,port:p,index}=data;
         if(h===hash){
           if(terminate){
-            return globalThis.terminate();
+            return globalThis.close();
           }
           if(p&&nonce instanceof Uint8Array){
             const i=parseInt(n);
@@ -195,7 +206,7 @@ if(isWorker){
             const hashChainPtr=wasm.hash_chain(chainPtr);
             const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH);
             port.postMessage(hashChain);
-          }else if(!isNaN(index)&&index>0&&index<CHAIN_BLOCK_COUNT){
+          }else if(!isNaN(index)&&index>=0&&index<CHAIN_BLOCK_COUNT){
             port.postMessage(new Uint8Array(wasm.memory.buffer,chainPtr+index*BLOCK_SIZE,BLOCK_SIZE));
           }
         }

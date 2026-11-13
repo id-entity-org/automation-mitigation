@@ -1,6 +1,6 @@
 use pow::{
-    Block, DebugPrinter, ProgressReporter, State, DEFAULT_BLOCK_SIZE,
-    DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT,
+    Block, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH,
+    DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT, DebugPrinter, ProgressReporter, State,
 };
 use std::array::from_fn;
 use std::slice::from_raw_parts;
@@ -214,8 +214,10 @@ pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
 /// Hash chain size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
-    let hash_chain: Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> =
-        Box::new([[0u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]);
+    let hash_chain = Box::<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]>::new_zeroed();
+    // SAFETY:
+    // Initialized on previous statement with `new_zeroed()`.
+    let hash_chain = unsafe { hash_chain.assume_init() };
     Box::into_raw(hash_chain) as *mut u8
 }
 
@@ -233,7 +235,9 @@ pub unsafe extern "C" fn alloc_hash_chains() -> *mut usize {
 /// Blocks size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
-    let blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> =
-        Box::new([[0u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]);
+    let blocks = Box::<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]>::new_zeroed();
+    // SAFETY:
+    // Initialized on previous statement with `new_zeroed()`.
+    let blocks = unsafe { blocks.assume_init() };
     Box::into_raw(blocks) as *mut u8
 }

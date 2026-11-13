@@ -1,6 +1,6 @@
 use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
-use crate::{challenge_index, reference_block_index, Block, Challenge, Nonce};
+use crate::{Block, Challenge, Nonce, challenge_index, reference_block_index};
 use rs_merkle::{Hasher, MerkleProof};
 
 impl<
@@ -16,6 +16,9 @@ where
         ValidChainCount<CHAIN_COUNT>,
 {
     pub fn verify_proof(nonce: &Nonce, proof: &[u8]) -> Option<()> {
+        if proof.len() > Self::MAX_PROOF_BYTES {
+            return None;
+        }
         let nonces = Self::split_nonce(nonce);
         let mut parser = Parser::new(proof);
         let root = *parser.read::<HASH_LENGTH>()?;
@@ -46,6 +49,9 @@ where
             let parent_block_hash = MerkleHasher::<HASH_LENGTH>::hash(parent_block);
             let reference_block_hash = MerkleHasher::<HASH_LENGTH>::hash(reference_block);
             let len = parser.read_uint()?;
+            if len > Self::MAX_MERKLE_PROOF_BYTES {
+                return None;
+            }
             let proof = parser.read_slice(len)?;
             let proof = MerkleProof::<MerkleHasher<HASH_LENGTH>>::from_bytes(proof).ok()?;
             let mut indexed_leaves = [

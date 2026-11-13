@@ -6,13 +6,13 @@ use std::{ptr, thread};
 use tiny_keccak::{CShake, Hasher};
 
 pub struct VerifiableNonce {
-    pub generation: u16,
+    pub generation: u32,
     pub counter: usize,
     pub nonce: [u8; 16],
 }
 
 pub struct NonceProducer<const MAX: usize = 512_000> {
-    pub generation: u16,
+    pub generation: u32,
     cursor: AtomicUsize,
     bitset: Box<[AtomicU64]>,
     iv: [u8; 32],
@@ -20,11 +20,11 @@ pub struct NonceProducer<const MAX: usize = 512_000> {
 }
 
 impl<const MAX: usize> NonceProducer<MAX> {
-    pub fn for_generation(generation: u16, seed: &[u8; 32]) -> Self {
+    pub fn for_generation(generation: u32, seed: &[u8; 32]) -> Self {
         const { assert!(MAX.is_multiple_of(64), "MAX must be a multiple of 64") };
         Self::generate(generation, seed)
     }
-    pub(crate) fn for_generations(generation: u16, seed: &[u8; 32]) -> (Self, Self) {
+    pub(crate) fn for_generations(generation: u32, seed: &[u8; 32]) -> (Self, Self) {
         (
             Self::generate(generation, seed),
             Self::generate(generation.wrapping_add(1), seed),
@@ -72,19 +72,20 @@ impl<const MAX: usize> NonceProducer<MAX> {
             })
             .ok()
     }
-    fn generate(generation: u16, seed: &[u8; 32]) -> Self {
-        let (iv, mac_key) = {
-            let mut hasher = CShake::v256(b"kdf", b"key");
-            hasher.update(seed);
-            hasher.update(generation.to_le_bytes().as_slice());
-            let mut out = [0u8; 64];
-            hasher.finalize(&mut out);
-            let mut iv = [0u8; 32];
-            iv.copy_from_slice(&out[..32]);
-            let mut mac_key = [0u8; 32];
-            mac_key.copy_from_slice(&out[32..]);
-            (iv, mac_key)
-        };
+    fn derive_keys(generation: u32, seed: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
+        let mut hasher = CShake::v256(b"kdf", b"key");
+        hasher.update(seed);
+        hasher.update(generation.to_le_bytes().as_slice());
+        let mut out = [0u8; 64];
+        hasher.finalize(&mut out);
+        let mut iv = [0u8; 32];
+        iv.copy_from_slice(&out[..32]);
+        let mut mac_key = [0u8; 32];
+        mac_key.copy_from_slice(&out[32..]);
+        (iv, mac_key)
+    }
+    fn generate(generation: u32, seed: &[u8; 32]) -> Self {
+        let (iv, mac_key) = Self::derive_keys(generation, seed);
         let len = MAX / 64;
         let mut bitset = Vec::<AtomicU64>::with_capacity(len);
         // SAFETY: we zero the memory to initialize,
@@ -105,14 +106,17 @@ impl<const MAX: usize> NonceProducer<MAX> {
 }
 
 struct Producers<const N: usize> {
+    seed: [u8; 32],
     gen1: NonceProducer<N>,
     gen2: NonceProducer<N>,
 }
 
 impl<const N: usize> Producers<N> {
-    pub(crate) fn rotate(&mut self) {
+    pub(crate) fn rotate(&mut self, iv: [u8; 32], mac_key: [u8; 32]) {
         std::mem::swap(&mut self.gen1, &mut self.gen2);
         self.gen2.generation = self.gen1.generation.wrapping_add(1);
+        self.gen2.iv = iv;
+        self.gen2.mac_key = mac_key;
         // Replace with AtomicU64::get_mut_slice when stabilize
         // Tracking issue: https://github.com/rust-lang/rust/issues/76314
         let slice: &mut [u64] =
@@ -131,9 +135,13 @@ impl<const T: usize, const N: usize> RollingWindow<T, N> {
     pub fn from_seed(seed: &[u8; 32]) -> Self {
         const { assert!(T > 0, "T must be greater than 0") };
         const { assert!(N.is_multiple_of(64), "N must be a multiple of 64") };
-        let generation = (UNIX_EPOCH.elapsed().unwrap().as_secs() / T as u64) as u16;
+        let generation = (UNIX_EPOCH.elapsed().unwrap().as_secs() / T as u64) as u32;
         let (gen1, gen2) = NonceProducer::<N>::for_generations(generation, seed);
-        let generations = Arc::new(RwLock::new(Producers { gen1, gen2 }));
+        let generations = Arc::new(RwLock::new(Producers {
+            seed: *seed,
+            gen1,
+            gen2,
+        }));
         let gens = Arc::downgrade(&generations);
         let rotator = Some(thread::spawn(move || {
             loop {
@@ -143,13 +151,25 @@ impl<const T: usize, const N: usize> RollingWindow<T, N> {
                 thread::park_timeout(std::time::Duration::from_secs(sleep_duration));
                 match gens.upgrade() {
                     Some(gens) => {
-                        let mut generations = gens
-                            .write()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner());
                         let generation =
-                            (UNIX_EPOCH.elapsed().unwrap().as_secs() / T as u64) as u16;
-                        while generation != generations.gen1.generation {
-                            generations.rotate();
+                            (UNIX_EPOCH.elapsed().unwrap().as_secs() / T as u64) as u32;
+                        loop {
+                            let (seed, next_generation) = {
+                                let generations =
+                                    gens.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+                                if generation == generations.gen1.generation {
+                                    break;
+                                }
+                                (
+                                    generations.seed,
+                                    generations.gen2.generation.wrapping_add(1),
+                                )
+                            };
+                            let (iv, mac_key) =
+                                NonceProducer::<N>::derive_keys(next_generation, &seed);
+                            gens.write()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .rotate(iv, mac_key);
                         }
                     }
                     None => break,

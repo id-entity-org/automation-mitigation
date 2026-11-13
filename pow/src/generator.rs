@@ -2,7 +2,7 @@ use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
 #[cfg(feature = "debug")]
 use crate::hex::Hex;
-use crate::{challenge_index, reference_block_index, Block, Nonce, ProgressReporter};
+use crate::{Block, Nonce, ProgressReporter, challenge_index, reference_block_index};
 use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
@@ -112,10 +112,10 @@ where
             Hex(split_nonce)
         ));
         let offset = CHAIN_BLOCK_COUNT * i;
-        // SAFETY: Fill the first two blocks with zeros (they are just Box<[u8]>)
+        // SAFETY: Fill the first two blocks with zeros.
         unsafe {
-            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
-            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
+            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, 1);
+            ptr::write_bytes(blocks[1].as_mut_ptr(), 0u8, 1);
         }
         let mut allocated_hash = [0; 64];
         #[cfg(feature = "progress")]

@@ -48,6 +48,11 @@ impl<
     const _ENFORCE_CHAIN_BLOCK_COUNT_AT_LEAST_2: () = const {
         assert!(CHAIN_BLOCK_COUNT >= 2);
     };
+    pub const MAX_MERKLE_PROOF_BYTES: usize =
+        3 * (usize::BITS - (Self::TOTAL_BLOCK_COUNT - 1).leading_zeros()) as usize * HASH_LENGTH;
+    pub const MAX_PROOF_BYTES: usize = HASH_LENGTH
+        + STEP_COUNT
+            * (3 * size_of::<u32>() + HASH_LENGTH + 2 * BLOCK_SIZE + Self::MAX_MERKLE_PROOF_BYTES);
     pub const fn chain_count() -> usize {
         CHAIN_COUNT
     }

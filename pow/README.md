@@ -8,7 +8,7 @@ We derive `CHAIN_COUNT` chains. `CHAIN_COUNT` is between 1 and 8 (2 by default).
 
 Each chain has `CHAIN_BLOCK_COUNT` blocks (262_144 blocks by default).
 
-Each block has `BLOCK_SIZE` hashes (256 by default) of `HASH_LEN` length (16 bytes by default).
+Each block has `BLOCK_SIZE` bytes (256 by default) of hashes of `HASH_LEN` length (16 bytes by default).
 
 ---
 
