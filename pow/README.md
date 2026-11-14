@@ -1,44 +1,37 @@
 # Proof of work
 
-## Implementation details
+## Base algorithm
 
 It starts with a 16-byte [Nonce](https://en.wikipedia.org/wiki/Cryptographic_nonce).
 
 We derive `CHAIN_COUNT` chains. `CHAIN_COUNT` is between 1 and 8 (2 by default).
 
-Each chain has `CHAIN_BLOCK_COUNT` blocks (1_048_576 committed positions by default; the solver computes the first 262_144 blocks).
+Each chain has `CHAIN_BLOCK_COUNT` blocks (1_048_576 blocks by default).
 
 Each block has `BLOCK_SIZE` bytes (256 by default). Its Merkle hash has `HASH_LENGTH` bytes (16 by default).
 
 ---
 
 ### Steps to generate the proof
+
   - Split the original nonce into CHAIN_COUNT nonces.<br>
-    [cShake256](https://kerkour.com/sha3#cshake) is used as [KDF](https://en.wikipedia.org/wiki/Key_derivation_function).<br>
     These nonces are used to seed each chain.<br><br>
 
-  - Compute the first quarter of each chain.<br>
+  - Compute all blocks of each chain.<br>
     The first two blocks are zero-filled.<br>
     For the next blocks:
     - Take the parent (previous) block
     - Take a reference block<br>
       The reference block is an index between 0 and parent index, 
       calculated deterministically from the parent block content.
-    - Hash the full parent and reference blocks into a 64-byte intermediate with domain `initial`.
-      Hash that intermediate once with domain `[0, 0]`, then expand it with the chain nonce
-      and domain `final` into BLOCK_SIZE bytes. There is no iteration-count setting.<br><br>
+    - Hash the full parent and reference blocks into a 64-byte intermediate.
+      Hash that intermediate once, then expand it with the chain nonce into BLOCK_SIZE bytes.<br><br>
 
-  - Create a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) over all committed positions.<br>
-    Use the computed block hashes for each prefix and zero placeholder hashes for the remaining positions.
-    Leave the final placeholder leaf uncommitted.<br><br>
+  - Create a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) from all the chains.<br>
+    Each leaf is the hash of a full block.<br><br>
 
-  - Search for a root whose STEP_COUNT (7 by default) indices all land in the computed prefixes.<br>
-    Each candidate leaf is cShake256 with function name `pow`, domain `trial`, and a little-endian
-    `u64` counter as input. Recalculate only the final leaf's path and reject a candidate at its
-    first sample outside the prefixes. Commit the winning leaf once.<br>
-    The browser's chain workers search disjoint counter sequences in batches of 256 attempts.
-    The coordinator chooses the lowest successful counter in the completed batch, so worker
-    scheduling does not change the proof. Existing channels still carry hashes and block requests.<br><br>
+  - Calculate STEP_COUNT (7 by default) sample indices.<br>
+    They are derived deterministically from the Merkle tree root.<br><br>
 
   - Assemble the proof. 
     - The merkle tree root
@@ -54,6 +47,7 @@ Each block has `BLOCK_SIZE` bytes (256 by default). Its Merkle hash has `HASH_LE
 ---
 
 ### Steps to verify the proof
+
   - Extract the merkle tree root<br><br>
   - For each step:
     - extract the index `i` and verify it
@@ -67,14 +61,35 @@ Each block has `BLOCK_SIZE` bytes (256 by default). Its Merkle hash has `HASH_LE
 
 <br>
 
+## Implemented shortcut
+
+The implementation uses a shortcut to generate valid proofs faster and with less memory than
+the base algorithm, at the cost of less predictable completion time. The proof format and
+verification steps are the same: the verifier checks the sampled blocks, without requiring
+every block in every chain to have been computed.
+
+1. Compute only the first quarter of each chain (262_144 blocks per chain by default), using
+   the same block computation as the base algorithm. Parent and reference blocks always
+   precede the block being computed, so these prefixes can be computed independently of the rest.
+2. Build the Merkle tree using the computed block hashes and zero placeholder hashes for the
+   remaining positions. Leave the final placeholder leaf uncommitted.
+3. Try different values for that final leaf until all seven sample indices land in the computed
+   prefixes. Each candidate leaf is cShake256 with function name `pow`, domain `trial`, and a
+   little-endian `u64` counter as input. Each retry recalculates only that leaf's path to the root
+   and rejects the candidate at the first sample outside the prefixes.
+4. Commit the winning leaf and assemble the proof once, as in the base algorithm.
+
+The browser's two chain workers each compute their own prefix, then search disjoint counter
+sequences in batches of 256 attempts. The coordinator chooses the lowest successful counter
+in the completed batch, so worker scheduling does not change the proof.
+
+The number of retries depends on luck: some proofs finish quickly, while others require many
+more attempts. The shortcut reduces expected computation, but does not provide a fixed retry
+count or completion time.
+
 The computed prefixes occupy 128 MiB at the base settings, or 256 MiB with `high-memory`.
 Merkle trees, transferred buffers, and other overhead are additional. Root-search duration varies;
 progress reports phase estimates rather than a guaranteed remaining time.
-
-The proof record format is unchanged, but the sample count and committed block count have changed.
-Update generators and verifiers together; proofs for the previous settings are incompatible.
-The `high-cpu` feature and its browser bundles have been removed. Use `lib-min.mjs` (base) or
-`lib-high-mem-min.mjs` (high memory), with matching server features.
 
 ## Crate features
 

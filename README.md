@@ -60,9 +60,9 @@ The implementation is split in multiple steps to allow parallel computation usin
 
 You can generate the wasm file by compiling the [wasm](./wasm) crate.
 
-By default, two chain workers each retain a quarter-prefix: **128 MiB of block data** in total.
-Merkle trees, worker copies, and other allocations add to peak RAM. Root retries make completion
-time variable. See [the algorithm](./pow/README.md) for the seven-sample defaults and the high-memory option.
+By default, the computation of the proof uses **2 CPU** cores and **256 MB** of RAM, 
+and completes in about 10 seconds on a mid-range phone.
+However, the memory required can be adjusted.
 
 **Reducing complexity** is generally only necessary for secondary forms where the computation is only started
 upon interaction to save resources, but the submission is almost immediate (there are no required fields).
@@ -102,8 +102,8 @@ pub fn verify_proof(nonce: &[u8; 16], proof: &[u8]) -> Option<()> {
 If your server is not implemented in [Rust](https://rust-lang.org/),
 the function can be compiled to WebAssembly and executed via a WASM runtime (see the [java](./examples/java) and [javascript](./examples/javascript) examples).
 
-The nonce must be unpredictable and unique. The unpredictability prevents pre-computation before issuance; the solver still uses the
-prefix/root-retry strategy described in the algorithm documentation. The uniqueness prevents replay of valid proofs already submitted.<br>
+The nonce must be unpredictable and unique. The unpredictability ensures that the proof cannot be pre-computed.
+The uniqueness prevents replay of valid proofs already submitted.<br>
 16 bytes provide enough entropy for the seed of the proof of work algorithm.
 
 To prevent replay, the server must keep track of the nonces that were already issued, and verify that the nonce is valid
