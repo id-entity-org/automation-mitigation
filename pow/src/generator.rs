@@ -9,7 +9,7 @@ use std::array::from_fn;
 use std::mem::MaybeUninit;
 use std::ptr;
 
-pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
+pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>, false>);
 
 impl<const HASH_LENGTH: usize> State<HASH_LENGTH> {
     pub fn search_path(&self) -> Vec<[u8; HASH_LENGTH]> {
@@ -170,13 +170,16 @@ where
     ) -> Box<State<HASH_LENGTH>> {
         // Leave the final, uncomputed leaf uncommitted. Root retries only need
         // its sibling path; commit the winning leaf once before making proofs.
-        let mut leaves = vec![[0; HASH_LENGTH]; Self::TOTAL_BLOCK_COUNT - 1];
-        for (i, chain) in hash_chains.iter().enumerate() {
+        for chain in hash_chains {
             assert_eq!(chain.len(), Self::COMPUTED_BLOCK_COUNT);
-            let offset = i * CHAIN_BLOCK_COUNT;
-            leaves[offset..offset + chain.len()].copy_from_slice(chain);
         }
-        Box::new(State(MerkleTree::from_leaves(&leaves)))
+        let leaves = (0..Self::TOTAL_BLOCK_COUNT - 1).map(|index| {
+            hash_chains[index / CHAIN_BLOCK_COUNT]
+                .get(index % CHAIN_BLOCK_COUNT)
+                .copied()
+                .unwrap_or([0; HASH_LENGTH])
+        });
+        Box::new(State(MerkleTree::from_leaves_iter(leaves)))
     }
 
     /// Search a bounded batch. Disjoint starts and a common stride let workers
