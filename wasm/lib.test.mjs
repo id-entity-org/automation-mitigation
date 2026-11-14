@@ -13,6 +13,7 @@ for(const test_ of [
     const {default:pow}=await import(`./dist/lib${test_.suffix}-min.mjs`);
     const abortController=new AbortController();
     const proof=await pow(nonce,abortController.signal);
+    assert.equal(proof.buffer.byteLength,proof.byteLength);
     const hashBuffer=await crypto.subtle.digest('SHA-256',proof);
     const hash=new Uint8Array(hashBuffer).toHex();
     assert.equal(hash,test_.expected);
@@ -31,6 +32,7 @@ for(const test_ of [
     const {default:pow}=await import(`./dist/lib${test_.suffix}-min.mjs`);
     const abortController=new AbortController();
     const proof=await pow(nonce,abortController.signal);
+    assert.equal(proof.buffer.byteLength,proof.byteLength);
     const hashBuffer=await crypto.subtle.digest('SHA-256',proof);
     const hash=new Uint8Array(hashBuffer).toHex();
     assert.equal(hash,test_.expected);

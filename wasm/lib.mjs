@@ -130,6 +130,7 @@ if(isWorker){
               results.forEach(({hashChain}, i)=>{
                 const hashChainPtr=wasm.alloc_hash_chain();
                 new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
+                delete results[i].hashChain;
                 new DataView(wasm.memory.buffer,hashChainsPtr+i*4).setUint32(0,hashChainPtr,true);
               });
               const statePtr=wasm.build_state(hashChainsPtr);
@@ -175,9 +176,9 @@ if(isWorker){
               (await workers).forEach(it=>it.terminate());
               const ptrAndLenPtr=wasm.combine(statePtr,rootPtr,indicesPtr,referenceIndicesPtr,parentBlocksPtr,referenceBlocksPtr);
               const [ptr,len]=new Uint32Array(wasm.memory.buffer,ptrAndLenPtr,2);
-              const proof=new Uint8Array(wasm.memory.buffer,ptr,len);
+              const proof=new Uint8Array(wasm.memory.buffer,ptr,len).slice();
               postMessage({hash,progress_value:progress_max,progress_max});
-              postMessage({hash,proof});
+              postMessage({hash,proof},[proof.buffer]);
             }
           }
         }
@@ -204,10 +205,11 @@ if(isWorker){
             chainPtr=wasm.generate_chain(i,noncePtr);
             wasm.free_nonce(noncePtr, 16);
             const hashChainPtr=wasm.hash_chain(chainPtr);
-            const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH);
-            port.postMessage(hashChain);
+            const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).slice();
+            port.postMessage(hashChain,[hashChain.buffer]);
           }else if(!isNaN(index)&&index>=0&&index<CHAIN_BLOCK_COUNT){
-            port.postMessage(new Uint8Array(wasm.memory.buffer,chainPtr+index*BLOCK_SIZE,BLOCK_SIZE));
+            const block=new Uint8Array(wasm.memory.buffer,chainPtr+index*BLOCK_SIZE,BLOCK_SIZE).slice();
+            port.postMessage(block,[block.buffer]);
           }
         }
       }
