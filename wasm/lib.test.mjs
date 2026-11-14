@@ -2,28 +2,37 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 
 for(const test_ of [
-  {name:'Test1 default',suffix:'',expected:'be04c35e9d55d41b58f1578c2b60f487471e480b506343eb19873dda4438f277'},
-  {name:'Test1 high cpu',suffix:'-high-cpu',expected:'4f29dbf5f60c027c0e22696d8a109c89cb5d433eb655d96e45f7df5e7d00ef1f'},
-  {name:'Test1 high memory',suffix:'-high-mem',expected:'48d5b0ba240fcf211dede5f950108bcf081e453c48e1d8bb20b413290c163b6f'},
-  {name:'Test1 high cpu and memory',suffix:'-high',expected:'f8545c0973957c0b0ae86a6470d404a4359b753a3c9127c23b8fa1a6ba1abece'}
+  {name:'Test1 default',suffix:'',expected:'e3ea79c441ffad7039ec422e83eb952c5244373c3b1a577c2fec5ee439ff2563'},
+  {name:'Test1 high memory',suffix:'-high-mem',expected:'457e2e6181d20c8e9146e6ddf0c434e0bd37b16175b4048241b55044514d50bc'},
 ]){
   test(test_.name,async()=>{
     const nonce=new Uint8Array(16);
     nonce.setFromHex("0b206ed758abdcb0d43c9bb3e7808495");
     const {default:pow}=await import(`./dist/lib${test_.suffix}-min.mjs`);
     const abortController=new AbortController();
-    const proof=await pow(nonce,abortController.signal);
+    const progress=[];
+    const proof=await pow(nonce,abortController.signal,value=>progress.push(value));
+    assert.equal(progress.at(-1),1);
+    assert.ok(progress.every((value,i)=>value>=0&&value<=1&&(!i||value>=progress[i-1])));
     const hashBuffer=await crypto.subtle.digest('SHA-256',proof);
     const hash=new Uint8Array(hashBuffer).toHex();
     assert.equal(hash,test_.expected);
   });
 }
 
+test('abort when root search begins',async()=>{
+  const {default:pow}=await import('./dist/lib-min.mjs');
+  const controller=new AbortController();
+  const pending=pow(new Uint8Array(16),controller.signal,progress=>{
+    if(progress>=.75) controller.abort();
+  });
+  await assert.rejects(pending);
+  assert.ok(controller.signal.aborted);
+});
+
 for(const test_ of [
-  {name:'Test2 default',suffix:'',expected:'3b44d3f3762e1d6a757bb65b110c1f358f2a30c63636c780370e4379e4ea273a'},
-  {name:'Test2 high cpu',suffix:'-high-cpu',expected:'0918856e32785ca82551af68fd8b4417471742c094964ede4d706a314ce46dd8'},
-  {name:'Test2 high memory',suffix:'-high-mem',expected:'cfd2f0644f82a4c8fa47fc2102a73d5c7b84fee637d88c2436f359b1a700df80'},
-  {name:'Test2 high cpu and memory',suffix:'-high',expected:'0654929e517a42bf0460cae5ba119e14166e45358dbe4ae72bb43b74c177d00e'}
+  {name:'Test2 default',suffix:'',expected:'38b6f08cee97642705391cf09a28de604e37da732f80e0f8af9b9e2531157a88'},
+  {name:'Test2 high memory',suffix:'-high-mem',expected:'5bd488a58a73d01eaea98bbd3c1a9da296c03159393e03a353936a82acdb664e'},
 ]){
   test(test_.name,async()=>{
     const nonce=new Uint8Array(16);

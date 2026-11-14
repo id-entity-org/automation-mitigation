@@ -16,7 +16,6 @@ default-features = false
 features = ["generate", "progress"]
 
 [features]
-default = ["high-cpu"]
-high-cpu = ["pow/high-cpu"]
+default = []
 high-memory = ["pow/high-memory"]
 

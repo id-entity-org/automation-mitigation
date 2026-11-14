@@ -1,6 +1,7 @@
 use pow::{
-    Block, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH,
-    DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT, DebugPrinter, ProgressReporter, State,
+    Block, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT,
+    DEFAULT_COMPUTED_BLOCK_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT, DebugPrinter,
+    DefaultGenerator, ProgressReporter, State,
 };
 use std::array::from_fn;
 use std::slice::from_raw_parts;
@@ -53,7 +54,10 @@ pub static CHAIN_BLOCK_COUNT_PTR: usize = DEFAULT_CHAIN_BLOCK_COUNT;
 pub static CHAIN_COUNT_PTR: usize = DEFAULT_CHAIN_COUNT;
 
 #[unsafe(no_mangle)]
-pub static ITERATION_COUNT_PTR: usize = DEFAULT_ITERATION_COUNT;
+pub static COMPUTED_BLOCK_COUNT_PTR: usize = DEFAULT_COMPUTED_BLOCK_COUNT;
+
+#[unsafe(no_mangle)]
+pub static SEARCH_PATH_LENGTH_PTR: usize = DefaultGenerator::SEARCH_PATH_LENGTH;
 
 /// Generates a chain of blocks.
 ///
@@ -79,10 +83,10 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut 
 /// Hash chain size is also known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
-    let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_CHAIN_BLOCK_COUNT] = unsafe {
+    let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT] = unsafe {
         from_raw_parts(
             chain_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
-            DEFAULT_CHAIN_BLOCK_COUNT,
+            DEFAULT_COMPUTED_BLOCK_COUNT,
         )
         .try_into()
         .inspect_err(|err| Printer.error_println(&format!("{err}")))
@@ -103,12 +107,48 @@ pub unsafe extern "C" fn build_state(
 ) -> *mut State<DEFAULT_HASH_LENGTH> {
     let chain_ptrs =
         unsafe { from_raw_parts(hash_chains_ptr as *const *const u8, DEFAULT_CHAIN_COUNT) };
-    let chains: [&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT] =
+    let chains: [&[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_COMPUTED_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT] =
         from_fn(|i| unsafe {
-            &*(chain_ptrs[i] as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT])
+            &*(chain_ptrs[i] as *const [[u8; DEFAULT_HASH_LENGTH]; DEFAULT_COMPUTED_BLOCK_COUNT])
         });
     let state = pow::build_state(&chains, Printer);
     Box::into_raw(state)
+}
+
+/// Returns the sibling hashes for the uncommitted final leaf.
+///
+/// # Safety
+/// State must be a live, unfinished tree returned by build_state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn search_path(state: *const State<DEFAULT_HASH_LENGTH>) -> *mut u8 {
+    Box::into_raw(unsafe { &*state }.search_path().into_boxed_slice()) as *mut u8
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc_search_path() -> *mut u8 {
+    Box::into_raw(
+        vec![[0u8; DEFAULT_HASH_LENGTH]; DefaultGenerator::SEARCH_PATH_LENGTH].into_boxed_slice(),
+    ) as *mut u8
+}
+
+/// # Safety
+/// Path points to SEARCH_PATH_LENGTH initialized hashes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn search_roots(path: *const u8, start: u64, stride: u64, count: u32) -> u64 {
+    let path = unsafe {
+        from_raw_parts(
+            path as *const [u8; DEFAULT_HASH_LENGTH],
+            DefaultGenerator::SEARCH_PATH_LENGTH,
+        )
+    };
+    DefaultGenerator::search_roots(path, start, stride, count).unwrap_or(u64::MAX)
+}
+
+/// # Safety
+/// State must be a live, unfinished tree; commit exactly once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn commit_root(state: *mut State<DEFAULT_HASH_LENGTH>, trial: u64) {
+    unsafe { &mut *state }.commit_leaf(DefaultGenerator::trial_leaf(trial));
 }
 
 /// Returns the root of the merkle tree.
@@ -214,7 +254,7 @@ pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
 /// Hash chain size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
-    let hash_chain = Box::<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]>::new_zeroed();
+    let hash_chain = Box::<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_COMPUTED_BLOCK_COUNT]>::new_zeroed();
     // SAFETY:
     // Initialized on previous statement with `new_zeroed()`.
     let hash_chain = unsafe { hash_chain.assume_init() };
