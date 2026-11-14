@@ -1,17 +1,16 @@
 use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
-use crate::{Block, Challenge, Nonce, challenge_index, reference_block_index};
+use crate::{BLOCK_SIZE, Block, Challenge, Nonce, challenge_index, reference_block_index};
 use rs_merkle::{Hasher, MerkleProof};
 
 impl<
     const CHAIN_COUNT: usize,
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
-    const BLOCK_SIZE: usize,
     const HASH_LENGTH: usize,
-> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
+> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>
 where
-    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>:
+    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>:
         ValidChainCount<CHAIN_COUNT>,
 {
     pub fn verify_proof(nonce: &Nonce, proof: &[u8]) -> Option<()> {
@@ -30,13 +29,11 @@ where
             let block_hash = *parser.read::<HASH_LENGTH>()?;
             let blocks = parser.read_slice(BLOCK_SIZE * 2)?;
             let (parent_block, reference_block) = blocks.split_at_checked(BLOCK_SIZE)?;
-            let parent_block: &Block<BLOCK_SIZE> = parent_block.try_into().unwrap();
-            if reference_index
-                != reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, parent_block)
-            {
+            let parent_block: &Block = parent_block.try_into().unwrap();
+            if reference_index != reference_block_index::<CHAIN_BLOCK_COUNT>(index, parent_block) {
                 return None;
             }
-            let reference_block: &Block<BLOCK_SIZE> = reference_block.try_into().unwrap();
+            let reference_block: &Block = reference_block.try_into().unwrap();
             let block = Self::compute_block(
                 &nonces[index / CHAIN_BLOCK_COUNT],
                 parent_block,
@@ -75,12 +72,8 @@ where
         Some(())
     }
 
-    fn compute_block(
-        nonce: &Nonce,
-        parent_block: &Block<BLOCK_SIZE>,
-        reference_block: &Block<BLOCK_SIZE>,
-    ) -> Block<BLOCK_SIZE> {
-        let mut hash = [0u8; 64];
+    fn compute_block(nonce: &Nonce, parent_block: &Block, reference_block: &Block) -> Block {
+        let mut hash = [0u8; BLOCK_SIZE];
         MerkleHasher::custom_domain_hash_with_prefix_into(
             b"initial",
             parent_block,

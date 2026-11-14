@@ -1,5 +1,5 @@
 use pow::{
-    Block, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT,
+    BLOCK_SIZE, Block, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT,
     DEFAULT_COMPUTED_BLOCK_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_STEP_COUNT, DebugPrinter,
     DefaultGenerator, ProgressReporter, State,
 };
@@ -45,7 +45,7 @@ pub static HASH_LENGTH_PTR: usize = DEFAULT_HASH_LENGTH;
 pub static STEP_COUNT_PTR: usize = DEFAULT_STEP_COUNT;
 
 #[unsafe(no_mangle)]
-pub static BLOCK_SIZE_PTR: usize = DEFAULT_BLOCK_SIZE;
+pub static BLOCK_SIZE_PTR: usize = BLOCK_SIZE;
 
 #[unsafe(no_mangle)]
 pub static CHAIN_BLOCK_COUNT_PTR: usize = DEFAULT_CHAIN_BLOCK_COUNT;
@@ -83,14 +83,11 @@ pub unsafe extern "C" fn generate_chain(i: usize, nonce_ptr: *const u8) -> *mut 
 /// Hash chain size is also known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hash_chain(chain_ptr: *const u8) -> *mut u8 {
-    let chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT] = unsafe {
-        from_raw_parts(
-            chain_ptr as *const Block<DEFAULT_BLOCK_SIZE>,
-            DEFAULT_COMPUTED_BLOCK_COUNT,
-        )
-        .try_into()
-        .inspect_err(|err| Printer.error_println(&format!("{err}")))
-        .unwrap()
+    let chain: &[Block; DEFAULT_COMPUTED_BLOCK_COUNT] = unsafe {
+        from_raw_parts(chain_ptr as *const Block, DEFAULT_COMPUTED_BLOCK_COUNT)
+            .try_into()
+            .inspect_err(|err| Printer.error_println(&format!("{err}")))
+            .unwrap()
     };
     let hash_chain = pow::hash_chain(chain);
     Box::into_raw(hash_chain) as *mut u8
@@ -182,8 +179,8 @@ pub unsafe extern "C" fn select_reference_indices(
     indices: *const usize,
     parent_blocks: *const u8,
 ) -> *mut usize {
-    let parent_blocks: &[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT] =
-        unsafe { &*(parent_blocks as *const [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
+    let parent_blocks: &[[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT] =
+        unsafe { &*(parent_blocks as *const [[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
     let reference_indices = pow::select_reference_indices(
         unsafe { &*(indices as *const [usize; DEFAULT_STEP_COUNT]) },
         &from_fn(|i| &parent_blocks[i]),
@@ -210,12 +207,10 @@ pub unsafe extern "C" fn combine(
     let indices = unsafe { Box::from_raw(indices as *mut [usize; DEFAULT_STEP_COUNT]) };
     let reference_indices =
         unsafe { Box::from_raw(reference_indices as *mut [usize; DEFAULT_STEP_COUNT]) };
-    let parent_blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> = unsafe {
-        Box::from_raw(parent_blocks as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT])
-    };
-    let reference_blocks: Box<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]> = unsafe {
-        Box::from_raw(reference_blocks as *mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT])
-    };
+    let parent_blocks: Box<[[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]> =
+        unsafe { Box::from_raw(parent_blocks as *mut [[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
+    let reference_blocks: Box<[[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]> =
+        unsafe { Box::from_raw(reference_blocks as *mut [[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]) };
     let proof = pow::combine(
         state,
         &root,
@@ -275,7 +270,7 @@ pub unsafe extern "C" fn alloc_hash_chains() -> *mut usize {
 /// Blocks size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_blocks() -> *mut u8 {
-    let blocks = Box::<[[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_STEP_COUNT]>::new_zeroed();
+    let blocks = Box::<[[u8; BLOCK_SIZE]; DEFAULT_STEP_COUNT]>::new_zeroed();
     // SAFETY:
     // Initialized on previous statement with `new_zeroed()`.
     let blocks = unsafe { blocks.assume_init() };

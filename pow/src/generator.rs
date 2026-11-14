@@ -2,7 +2,7 @@ use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
 #[cfg(feature = "debug")]
 use crate::hex::Hex;
-use crate::{Block, Nonce, ProgressReporter, challenge_index, reference_block_index};
+use crate::{BLOCK_SIZE, Block, Nonce, ProgressReporter, challenge_index, reference_block_index};
 use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
@@ -35,11 +35,10 @@ impl<
     const CHAIN_COUNT: usize,
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
-    const BLOCK_SIZE: usize,
     const HASH_LENGTH: usize,
-> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
+> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>
 where
-    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>:
+    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>:
         ValidChainCount<CHAIN_COUNT>,
 {
     const TREE_PROOF_BYTE_COUNT: usize = Self::TOTAL_BLOCK_COUNT.ilog2() as usize * HASH_LENGTH;
@@ -52,7 +51,7 @@ where
         nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> [Box<[Block<BLOCK_SIZE>]>; CHAIN_COUNT] {
+    ) -> [Box<[Block]>; CHAIN_COUNT] {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let nonces = Self::split_nonce(nonce);
@@ -64,10 +63,9 @@ where
         nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> Box<[Block<BLOCK_SIZE>]> {
-        let mut allocated =
-            Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
-        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>] = allocated.as_mut();
+    ) -> Box<[Block]> {
+        let mut allocated = Box::<[Block]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block>] = allocated.as_mut();
         Self::generate_allocated_chain(i, nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
         unsafe { allocated.assume_init() }
@@ -78,10 +76,9 @@ where
         split_nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> Box<[Block<BLOCK_SIZE>]> {
-        let mut allocated =
-            Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
-        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>] = allocated.as_mut();
+    ) -> Box<[Block]> {
+        let mut allocated = Box::<[Block]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block>] = allocated.as_mut();
         Self::generate_allocated_chain_split_nonce(i, split_nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
         unsafe { allocated.assume_init() }
@@ -90,7 +87,7 @@ where
     pub fn generate_allocated_chain(
         i: usize,
         nonce: &Nonce,
-        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
+        blocks: &mut [MaybeUninit<Block>],
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
     ) {
@@ -103,7 +100,7 @@ where
     fn generate_allocated_chain_split_nonce(
         i: usize,
         split_nonce: &Nonce,
-        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
+        blocks: &mut [MaybeUninit<Block>],
         #[allow(unused_variables)] printer: impl DebugPrinter,
         #[allow(unused_variables)] progress: impl ProgressReporter,
     ) {
@@ -125,11 +122,11 @@ where
             ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, 1);
             ptr::write_bytes(blocks[1].as_mut_ptr(), 0u8, 1);
         }
-        let mut allocated_hash = [0; 64];
+        let mut allocated_hash = [0; BLOCK_SIZE];
         #[cfg(feature = "progress")]
         let mut p0 = 0;
         for index in 2..Self::COMPUTED_BLOCK_COUNT {
-            let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(
+            let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT>(
                 index + offset,
                 // SAFETY: We know blocks[index - 1] is initialized in a previous iteration.
                 unsafe { blocks[index - 1].assume_init_ref() },
@@ -153,7 +150,7 @@ where
         }
     }
 
-    pub fn hash_chain(chain: &[Block<BLOCK_SIZE>]) -> Box<[[u8; HASH_LENGTH]]> {
+    pub fn hash_chain(chain: &[Block]) -> Box<[[u8; HASH_LENGTH]]> {
         let vec = chain
             .iter()
             .map(|it| {
@@ -226,14 +223,12 @@ where
 
     pub fn select_reference_indices(
         indices: &[usize; STEP_COUNT],
-        parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
+        parent_blocks: &[&Block; STEP_COUNT],
     ) -> Box<[usize; STEP_COUNT]> {
         let vec = indices
             .iter()
             .enumerate()
-            .map(|(i, &index)| {
-                reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(index, parent_blocks[i])
-            })
+            .map(|(i, &index)| reference_block_index::<CHAIN_BLOCK_COUNT>(index, parent_blocks[i]))
             .collect::<Vec<_>>();
         let raw = Box::into_raw(vec.into_boxed_slice());
         // SAFETY: we know the vec is the same size as the slice of indices.
@@ -245,8 +240,8 @@ where
         root: &[u8; HASH_LENGTH],
         indices: &[usize; STEP_COUNT],
         reference_indices: &[usize; STEP_COUNT],
-        parent_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
-        reference_blocks: &[&Block<BLOCK_SIZE>; STEP_COUNT],
+        parent_blocks: &[&Block; STEP_COUNT],
+        reference_blocks: &[&Block; STEP_COUNT],
         #[allow(unused_variables)] printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         #[cfg(feature = "debug")]
@@ -313,7 +308,7 @@ where
     }
 
     pub fn combine_chains(
-        chains: &[&[Block<BLOCK_SIZE>]; CHAIN_COUNT],
+        chains: &[&[Block]; CHAIN_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
@@ -351,10 +346,10 @@ where
 
     fn fill_block(
         nonce: &Nonce,
-        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
+        blocks: &mut [MaybeUninit<Block>],
         index: usize,
         reference_index: usize,
-        hash: &mut [u8; 64],
+        hash: &mut Block,
     ) {
         // SAFETY: We know blocks[index - 1] and block[reference_index] are already initialized.
         MerkleHasher::custom_domain_hash_with_prefix_into(
@@ -388,7 +383,7 @@ mod tests {
     }
 
     fn check_prefix<const BLOCKS: usize>() {
-        type Proof<const B: usize> = Challenge<3, 3, B, 32, 16>;
+        type Proof<const B: usize> = Challenge<3, 3, B, 16>;
         let nonce = [42; 16];
         let chains = Proof::<BLOCKS>::generate_chains(&nonce, Quiet, Quiet);
         assert!(

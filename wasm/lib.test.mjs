@@ -2,8 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 
 for(const test_ of [
-  {name:'Test1 default',suffix:'',expected:'e3ea79c441ffad7039ec422e83eb952c5244373c3b1a577c2fec5ee439ff2563'},
-  {name:'Test1 high memory',suffix:'-high-mem',expected:'457e2e6181d20c8e9146e6ddf0c434e0bd37b16175b4048241b55044514d50bc'},
+  {name:'Test1 default',suffix:'',expected:'60232bc8fa20f574a491739bab53a9e3370f57b173193f7ece662735f6d0296e'},
+  {name:'Test1 high memory',suffix:'-high-mem',expected:'25efbcf645919c0d3a1e75494a6f97c8e91aa57ac4d19625c782caa7d9f9065e'},
 ]){
   test(test_.name,async()=>{
     const nonce=new Uint8Array(16);
@@ -32,8 +32,8 @@ test('abort when root search begins',async()=>{
 });
 
 for(const test_ of [
-  {name:'Test2 default',suffix:'',expected:'38b6f08cee97642705391cf09a28de604e37da732f80e0f8af9b9e2531157a88'},
-  {name:'Test2 high memory',suffix:'-high-mem',expected:'5bd488a58a73d01eaea98bbd3c1a9da296c03159393e03a353936a82acdb664e'},
+  {name:'Test2 default',suffix:'',expected:'1cd4d20f292ecfd183ef090b71c716b1ced8986aff386cb5b8bc7c2e03acb9e1'},
+  {name:'Test2 high memory',suffix:'-high-mem',expected:'ab076454f1fad6cfa4464425c36de0907e0e269071b9a7691cbd881bb8615ae0'},
 ]){
   test(test_.name,async()=>{
     const nonce=new Uint8Array(16);

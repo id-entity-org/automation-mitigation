@@ -1,6 +1,7 @@
 extern crate rs_merkle;
 
-pub const DEFAULT_BLOCK_SIZE: usize = 256;
+/// Fixed block and intermediate-hash size in bytes.
+pub const BLOCK_SIZE: usize = 192;
 #[cfg(feature = "high-memory")]
 pub const DEFAULT_CHAIN_BLOCK_COUNT: usize = 2_097_152;
 #[cfg(not(feature = "high-memory"))]
@@ -11,14 +12,13 @@ pub const DEFAULT_HASH_LENGTH: usize = 16;
 pub const DEFAULT_COMPUTED_BLOCK_COUNT: usize = DefaultGenerator::COMPUTED_BLOCK_COUNT;
 
 pub type Nonce = [u8; 16];
-pub type Block<const BLOCK_SIZE: usize = DEFAULT_BLOCK_SIZE> = [u8; BLOCK_SIZE];
+pub type Block = [u8; BLOCK_SIZE];
 
 #[derive(Copy, Clone)]
 pub struct Challenge<
     const CHAIN_COUNT: usize = DEFAULT_CHAIN_COUNT,
     const STEP_COUNT: usize = DEFAULT_STEP_COUNT,
     const CHAIN_BLOCK_COUNT: usize = DEFAULT_CHAIN_BLOCK_COUNT,
-    const BLOCK_SIZE: usize = DEFAULT_BLOCK_SIZE,
     const HASH_LENGTH: usize = DEFAULT_HASH_LENGTH,
 >;
 
@@ -26,7 +26,6 @@ pub type DefaultGenerator = Challenge<
     DEFAULT_CHAIN_COUNT,
     DEFAULT_STEP_COUNT,
     DEFAULT_CHAIN_BLOCK_COUNT,
-    DEFAULT_BLOCK_SIZE,
     DEFAULT_HASH_LENGTH,
 >;
 
@@ -34,9 +33,8 @@ impl<
     const CHAIN_COUNT: usize,
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
-    const BLOCK_SIZE: usize,
     const HASH_LENGTH: usize,
-> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
+> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>
 {
     const TOTAL_BLOCK_COUNT: usize = CHAIN_BLOCK_COUNT * CHAIN_COUNT;
     /// The solver retains a quarter-prefix; indices still address the full chain.
@@ -120,7 +118,7 @@ mod generate {
         nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> Box<[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT]> {
+    ) -> Box<[Block; DEFAULT_COMPUTED_BLOCK_COUNT]> {
         assert!(i < DEFAULT_CHAIN_COUNT);
         DefaultGenerator::generate_chain(i, nonce, printer, progress)
             .try_into()
@@ -130,28 +128,27 @@ mod generate {
     pub fn generate_allocated_chain(
         i: usize,
         nonce: &Nonce,
-        blocks: &mut [Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT],
+        blocks: &mut [Block; DEFAULT_COMPUTED_BLOCK_COUNT],
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
     ) {
         assert!(i < DEFAULT_CHAIN_COUNT);
         // SAFETY: we just convert valid allocated memory into MaybeUninit
         let blocks = unsafe {
-            &mut *(blocks as *mut _
-                as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_COMPUTED_BLOCK_COUNT])
+            &mut *(blocks as *mut _ as *mut [MaybeUninit<Block>; DEFAULT_COMPUTED_BLOCK_COUNT])
         };
         DefaultGenerator::generate_allocated_chain(i, nonce, blocks, printer, progress)
     }
 
     pub fn combine_chains(
-        chains: &[&[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
+        chains: &[&[Block; DEFAULT_COMPUTED_BLOCK_COUNT]; DEFAULT_CHAIN_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         DefaultGenerator::combine_chains(&std::array::from_fn(|i| chains[i].as_slice()), printer)
     }
 
     pub fn hash_chain(
-        chain: &[Block<DEFAULT_BLOCK_SIZE>; DEFAULT_COMPUTED_BLOCK_COUNT],
+        chain: &[Block; DEFAULT_COMPUTED_BLOCK_COUNT],
     ) -> Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_COMPUTED_BLOCK_COUNT]> {
         DefaultGenerator::hash_chain(chain).try_into().unwrap()
     }
@@ -174,7 +171,7 @@ mod generate {
 
     pub fn select_reference_indices(
         indices: &[usize; DEFAULT_STEP_COUNT],
-        parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
+        parent_blocks: &[&Block; DEFAULT_STEP_COUNT],
     ) -> Box<[usize; DEFAULT_STEP_COUNT]> {
         DefaultGenerator::select_reference_indices(indices, parent_blocks)
     }
@@ -184,8 +181,8 @@ mod generate {
         root: &[u8; DEFAULT_HASH_LENGTH],
         indices: &[usize; DEFAULT_STEP_COUNT],
         reference_indices: &[usize; DEFAULT_STEP_COUNT],
-        parent_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
-        reference_blocks: &[&Block<DEFAULT_BLOCK_SIZE>; DEFAULT_STEP_COUNT],
+        parent_blocks: &[&Block; DEFAULT_STEP_COUNT],
+        reference_blocks: &[&Block; DEFAULT_STEP_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         DefaultGenerator::combine(
@@ -245,9 +242,9 @@ pub(crate) fn challenge_index<const CHAIN_BLOCK_COUNT: usize, const CHAIN_COUNT:
     (((seed * (CHAIN_BLOCK_COUNT - 2) as u128) / U64_VALUE_COUNT) as usize) + 2 + offset
 }
 
-pub(crate) fn reference_block_index<const CHAIN_BLOCK_COUNT: usize, const BLOCK_SIZE: usize>(
+pub(crate) fn reference_block_index<const CHAIN_BLOCK_COUNT: usize>(
     index: usize,
-    parent_block: &Block<BLOCK_SIZE>,
+    parent_block: &Block,
 ) -> usize {
     let offset = index / CHAIN_BLOCK_COUNT * CHAIN_BLOCK_COUNT;
     let i = (index % CHAIN_BLOCK_COUNT) as u64;
@@ -333,29 +330,28 @@ mod tests {
     fn test_generate_chain_default() {
         #[cfg(not(feature = "high-memory"))]
         let (hash_chain_0, hash_chain_1, hash_proof) = {
-            let hash_chain_0 = "ecc608c7fe3a3882674dae62e37ba5ab35d65b209cb7275d5f6058baf83caa2f";
-            let hash_chain_1 = "5f1a91de40c65bc92194db3c8bd7c2aeceb559986506f3576b8be0626241307f";
-            let hash_proof = "38b6f08cee97642705391cf09a28de604e37da732f80e0f8af9b9e2531157a88";
+            let hash_chain_0 = "04a298888aff1301568f058ce6e445997afa170b484672329d6bfb11a086084a";
+            let hash_chain_1 = "20297bd24861efed36cc749176cf353c8b76ff21888f7549eab3fd42ce14a12d";
+            let hash_proof = "1cd4d20f292ecfd183ef090b71c716b1ced8986aff386cb5b8bc7c2e03acb9e1";
             (hash_chain_0, hash_chain_1, hash_proof)
         };
         #[cfg(feature = "high-memory")]
         let (hash_chain_0, hash_chain_1, hash_proof) = {
-            let hash_chain_0 = "04fea7a3b95beae299bc49c9844faedccb8e028c677cddaca51f28c992b4840a";
-            let hash_chain_1 = "7ebd5c508585c34c62a218107047f2f27c569a2e36541a5b6ef44432f8f9585a";
-            let hash_proof = "5bd488a58a73d01eaea98bbd3c1a9da296c03159393e03a353936a82acdb664e";
+            let hash_chain_0 = "c278190a01e2bb7b8a3d99cbab05ff77a339e3c2a8917b970def7e48ec8f0983";
+            let hash_chain_1 = "4156efb22bc8c39290808eb53611eb1af81fb391241fed147b2fd478c42e6df6";
+            let hash_proof = "ab076454f1fad6cfa4464425c36de0907e0e269071b9a7691cbd881bb8615ae0";
             (hash_chain_0, hash_chain_1, hash_proof)
         };
 
         let nonce = 0x8b7df143d91c716ecfa5fc1730022f6b_u128.to_be_bytes();
-        let mut chain = vec![0u8; DEFAULT_BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT];
-        let ptr = chain.as_mut_ptr() as *mut [u8; DEFAULT_BLOCK_SIZE];
-        let ptr: &mut [[u8; DEFAULT_BLOCK_SIZE]; DEFAULT_COMPUTED_BLOCK_COUNT] =
+        let mut chain = vec![0u8; BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT];
+        let ptr = chain.as_mut_ptr() as *mut [u8; BLOCK_SIZE];
+        let ptr: &mut [[u8; BLOCK_SIZE]; DEFAULT_COMPUTED_BLOCK_COUNT] =
             unsafe { std::slice::from_raw_parts_mut(ptr, DEFAULT_COMPUTED_BLOCK_COUNT) }
                 .try_into()
                 .unwrap();
         let blocks = unsafe {
-            &mut *(ptr as *mut _
-                as *mut [MaybeUninit<Block<DEFAULT_BLOCK_SIZE>>; DEFAULT_COMPUTED_BLOCK_COUNT])
+            &mut *(ptr as *mut _ as *mut [MaybeUninit<Block>; DEFAULT_COMPUTED_BLOCK_COUNT])
         };
         DefaultGenerator::generate_allocated_chain(
             0,
@@ -387,9 +383,8 @@ mod tests {
         let chain2 = DefaultGenerator::generate_chain(1, &nonce, StdDebugPrinter, ProgressPrinter);
         let proof = DefaultGenerator::combine_chains(&[&chain1, &chain2], StdDebugPrinter);
         let chain = Box::into_raw(chain1) as *mut u8;
-        let chain = unsafe {
-            Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT])
-        };
+        let chain =
+            unsafe { Box::from_raw(chain as *mut [u8; BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT]) };
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()
@@ -397,9 +392,8 @@ mod tests {
         let hash = format!("{:x}", Hex(&hash));
         assert_eq!(hash, hash_chain_0);
         let chain = Box::into_raw(chain2) as *mut u8;
-        let chain = unsafe {
-            Box::from_raw(chain as *mut [u8; DEFAULT_BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT])
-        };
+        let chain =
+            unsafe { Box::from_raw(chain as *mut [u8; BLOCK_SIZE * DEFAULT_COMPUTED_BLOCK_COUNT]) };
         let hash = Sha256::default()
             .chain_update(chain.as_slice())
             .finalize()
@@ -415,9 +409,9 @@ mod tests {
     fn test_generate_serial_and_verify_proof_default() {
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
         #[cfg(not(feature = "high-memory"))]
-        let hash_proof = "e3ea79c441ffad7039ec422e83eb952c5244373c3b1a577c2fec5ee439ff2563";
+        let hash_proof = "60232bc8fa20f574a491739bab53a9e3370f57b173193f7ece662735f6d0296e";
         #[cfg(feature = "high-memory")]
-        let hash_proof = "457e2e6181d20c8e9146e6ddf0c434e0bd37b16175b4048241b55044514d50bc";
+        let hash_proof = "25efbcf645919c0d3a1e75494a6f97c8e91aa57ac4d19625c782caa7d9f9065e";
 
         let proof = generate_proof(&nonce, StdDebugPrinter, ProgressPrinter);
         let hash = Sha256::default().chain_update(&proof).finalize().to_vec();
@@ -432,9 +426,9 @@ mod tests {
         type TestChallenge = Challenge;
         let nonce = 0x0b206ed758abdcb0d43c9bb3e7808495_u128.to_be_bytes();
         #[cfg(not(feature = "high-memory"))]
-        let hash_proof = "e3ea79c441ffad7039ec422e83eb952c5244373c3b1a577c2fec5ee439ff2563";
+        let hash_proof = "60232bc8fa20f574a491739bab53a9e3370f57b173193f7ece662735f6d0296e";
         #[cfg(feature = "high-memory")]
-        let hash_proof = "457e2e6181d20c8e9146e6ddf0c434e0bd37b16175b4048241b55044514d50bc";
+        let hash_proof = "25efbcf645919c0d3a1e75494a6f97c8e91aa57ac4d19625c782caa7d9f9065e";
 
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, NoDebugPrinter, ProgressPrinter);
@@ -447,13 +441,8 @@ mod tests {
 
     #[test]
     fn test_generate_in_parallel_and_verify_proof() {
-        type TestChallenge = Challenge<
-            4,
-            DEFAULT_STEP_COUNT,
-            DEFAULT_CHAIN_BLOCK_COUNT,
-            DEFAULT_BLOCK_SIZE,
-            DEFAULT_HASH_LENGTH,
-        >;
+        type TestChallenge =
+            Challenge<4, DEFAULT_STEP_COUNT, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_HASH_LENGTH>;
         let nonce = 0xcc6b01afc72f00a711f2a41277e05c6a_u128.to_be_bytes();
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
@@ -464,9 +453,9 @@ mod tests {
 
     #[test]
     fn test_generate_in_parallel_and_verify_proof_non_default() {
-        type TestChallenge = Challenge<4, 5, 262_144, 1024, 32>;
+        type TestChallenge = Challenge<4, 5, 262_144, 32>;
         let nonce = 0xdb7149f937648e7b5a5e3fe726d42b24_u128.to_be_bytes();
-        let hash_proof = "31b73973d5697511b81f450fa43e2ff549a4692ad09fa8635cde6e43d254b80c";
+        let hash_proof = "60651b2b684c4355baaa26f583e53adada81a2f5935b0dc5e6f3e5a89aae2546";
 
         let proof =
             TestChallenge::generate_proof_in_parallel(&nonce, StdDebugPrinter, ProgressPrinter);
@@ -481,11 +470,10 @@ mod tests {
         const CHAIN_COUNT: usize,
         const STEP_COUNT: usize,
         const CHAIN_BLOCK_COUNT: usize,
-        const BLOCK_SIZE: usize,
         const HASH_LENGTH: usize,
-    > Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
+    > Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>
     where
-        Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>:
+        Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, HASH_LENGTH>:
             ValidChainCount<CHAIN_COUNT>,
     {
         fn generate_proof_in_parallel(
@@ -503,7 +491,7 @@ mod tests {
                     .into_iter()
                     .map(|it| it.join().unwrap())
                     .collect::<Vec<_>>();
-                let chains: [&[Block<BLOCK_SIZE>]; CHAIN_COUNT] = chains
+                let chains: [&[Block]; CHAIN_COUNT] = chains
                     .iter()
                     .map(|b| &**b)
                     .collect::<Vec<_>>()

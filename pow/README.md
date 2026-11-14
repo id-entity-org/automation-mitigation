@@ -8,7 +8,7 @@ We derive `CHAIN_COUNT` chains. `CHAIN_COUNT` is between 1 and 8 (2 by default).
 
 Each chain has `CHAIN_BLOCK_COUNT` blocks (1_048_576 blocks by default).
 
-Each block has `BLOCK_SIZE` bytes (256 by default). Its Merkle hash has `HASH_LENGTH` bytes (16 by default).
+Each block has `BLOCK_SIZE` bytes (fixed at 192, not a parameter). Its Merkle hash has `HASH_LENGTH` bytes (16 by default).
 
 ---
 
@@ -24,8 +24,8 @@ Each block has `BLOCK_SIZE` bytes (256 by default). Its Merkle hash has `HASH_LE
     - Take a reference block<br>
       The reference block is an index between 0 and parent index, 
       calculated deterministically from the parent block content.
-    - Hash the full parent and reference blocks into a 64-byte intermediate.
-      Hash that intermediate once, then expand it with the chain nonce into BLOCK_SIZE bytes.<br><br>
+    - Hash the full parent and reference blocks into a 192-byte intermediate.
+      Hash that intermediate once into 192 bytes, then hash it with the chain nonce into a 192-byte block.<br><br>
 
   - Create a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) from all the chains.<br>
     Each leaf is the hash of a full block.<br><br>
@@ -87,7 +87,7 @@ The number of retries depends on luck: some proofs finish quickly, while others 
 more attempts. The shortcut reduces expected computation, but does not provide a fixed retry
 count or completion time.
 
-The computed prefixes occupy 128 MiB at the base settings, or 256 MiB with `high-memory`.
+The computed prefixes occupy 96 MiB at the base settings, or 192 MiB with `high-memory`.
 Merkle trees, transferred buffers, and other overhead are additional. Root-search duration varies;
 progress reports phase estimates rather than a guaranteed remaining time.
 
