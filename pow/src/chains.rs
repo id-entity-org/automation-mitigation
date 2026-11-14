@@ -9,10 +9,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<1>
-    for Challenge<1, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<1> for Challenge<1, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 1] {
         [*nonce]
@@ -23,10 +21,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<2>
-    for Challenge<2, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<2> for Challenge<2, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 2] {
         let hash: [u8; 32] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -41,10 +37,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<3>
-    for Challenge<3, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<3> for Challenge<3, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 3] {
         let hash: [u8; 48] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -61,10 +55,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<4>
-    for Challenge<4, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<4> for Challenge<4, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 4] {
         let hash: [u8; 64] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -82,10 +74,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<5>
-    for Challenge<5, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<5> for Challenge<5, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 5] {
         let hash: [u8; 80] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -104,10 +94,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<6>
-    for Challenge<6, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<6> for Challenge<6, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 6] {
         let hash: [u8; 96] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -127,10 +115,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<7>
-    for Challenge<7, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<7> for Challenge<7, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 7] {
         let hash: [u8; 112] = MerkleHasher::custom_domain_hash(b"split", nonce);
@@ -151,10 +137,8 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> ValidChainCount<8>
-    for Challenge<8, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> ValidChainCount<8> for Challenge<8, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 {
     fn split_nonce(nonce: &Nonce) -> [Nonce; 8] {
         let hash: [u8; 128] = MerkleHasher::custom_domain_hash(b"split", nonce);

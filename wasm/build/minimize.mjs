@@ -6,7 +6,7 @@ import {build} from 'esbuild';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const dist=join(root,'dist');
 await mkdir(dist,{recursive:true});
-for(const suffix of ['','-high','-high-mem','-high-cpu']){
+for(const suffix of ['','-high-mem']){
   const result=await build({
     entryPoints:[join(root,'lib.mjs')],
     bundle:false,
@@ -23,7 +23,7 @@ for(const suffix of ['','-high','-high-mem','-high-cpu']){
             {filter:/lib.mjs$/},
             async(args)=>{
               const contents=(await readFile(args.path,'utf8')).replace(
-                /const url=new URL\('lib-high.wasm',import.meta.url\);/,
+                /const url=new URL\('lib.wasm',import.meta.url\);/,
                 `const url=new URL('lib${suffix}.wasm',import.meta.url);`
               );
               return {contents};

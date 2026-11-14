@@ -1,5 +1,5 @@
 // preload
-const url=new URL('lib-high.wasm',import.meta.url);
+const url=new URL('lib.wasm',import.meta.url);
 await(await fetch(url)).arrayBuffer();
 const isWorker=!!globalThis.WorkerGlobalScope&&globalThis instanceof WorkerGlobalScope;
 /**
@@ -75,17 +75,20 @@ if(isWorker){
   const BLOCK_SIZE=new DataView(wasm.memory.buffer,wasm.BLOCK_SIZE_PTR,4).getUint32(0,true);
   const CHAIN_BLOCK_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_BLOCK_COUNT_PTR,4).getUint32(0,true);
   const CHAIN_COUNT=new DataView(wasm.memory.buffer,wasm.CHAIN_COUNT_PTR,4).getUint32(0,true);
-  const ITERATION_COUNT=new DataView(wasm.memory.buffer,wasm.ITERATION_COUNT_PTR,4).getUint32(0,true);
+  const COMPUTED_BLOCK_COUNT=new DataView(wasm.memory.buffer,wasm.COMPUTED_BLOCK_COUNT_PTR,4).getUint32(0,true);
+  const SEARCH_PATH_LENGTH=new DataView(wasm.memory.buffer,wasm.SEARCH_PATH_LENGTH_PTR,4).getUint32(0,true);
   // expected time:
   // chains: t1 -> progress = 256
-  // hash chain: t2 = t1 / (4 * ITERATION_COUNT**.35)
-  // state + root: t3 = t2
-  // parent blocks: t4 = t2 / 2
-  // reference blocks: t5 = t2 / 2
-  // total: t1 + (t2 * 3)
+  // hash chain: t2 = t1 / 4
+  // state: t2
+  // parent blocks: t2 / 2
+  // reference blocks: t2 / 2
+  // root search: t3 (variable duration)
+  // total: t1 + (t2 * 3) + t3
   const t1=256;
-  const t2=t1/(4*ITERATION_COUNT**.35);
-  progress_max=t1+(t2*3);
+  const t2=t1/4;
+  const t3=t1/4;
+  progress_max=t1+(t2*3)+t3;
   if(n==='0'){ // coordinator worker
     const initWorker=i=>new Promise((resolve,reject)=>{
       const worker=new Worker(import.meta.url,{type:'module',credentials:'omit',name:`${hash}-${i}`});
@@ -129,13 +132,36 @@ if(isWorker){
               const hashChainsPtr=wasm.alloc_hash_chains();
               results.forEach(({hashChain}, i)=>{
                 const hashChainPtr=wasm.alloc_hash_chain();
-                new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
+                new Uint8Array(wasm.memory.buffer,hashChainPtr,COMPUTED_BLOCK_COUNT*HASH_LENGTH).set(hashChain);
                 delete results[i].hashChain;
                 new DataView(wasm.memory.buffer,hashChainsPtr+i*4).setUint32(0,hashChainPtr,true);
               });
               const statePtr=wasm.build_state(hashChainsPtr);
-              const rootPtr=wasm.root(statePtr);
               postMessage({hash,progress_value:t1+t2*2,progress_max});
+              const pathPtr=wasm.search_path(statePtr);
+              const path=new Uint8Array(wasm.memory.buffer,pathPtr,SEARCH_PATH_LENGTH*HASH_LENGTH).slice();
+              const batchSize=256;
+              let start=0n;
+              for(;;){
+                const trials=await Promise.all(results.map(({worker,channel},i)=>new Promise(resolve=>{
+                  channel.port1.onmessage=({data})=>{
+                    channel.port1.onmessage=null;
+                    resolve(data);
+                  };
+                  worker.postMessage({hash,search:{path:start===0n?path:undefined,start:start+BigInt(i),stride:BigInt(CHAIN_COUNT),count:batchSize}});
+                })));
+                // Finish the batch and choose the lowest candidate, keeping output
+                // deterministic regardless of which worker finishes first.
+                const found=trials.filter(it=>it!==-1n);
+                if(found.length){
+                  wasm.commit_root(statePtr,found.reduce((a,b)=>a<b?a:b));
+                  break;
+                }
+                start+=BigInt(batchSize*CHAIN_COUNT);
+                if(start+BigInt(batchSize*CHAIN_COUNT)>=0xffffffffffffffffn) throw new Error('root search exhausted');
+              }
+              const rootPtr=wasm.root(statePtr);
+              postMessage({hash,progress_value:t1+t2*2+t3,progress_max});
               const parentBlocksPtr=wasm.alloc_blocks();
               const indicesPtr=wasm.select_indices(rootPtr);
               const indices=new Uint32Array(wasm.memory.buffer,indicesPtr,STEP_COUNT);
@@ -154,7 +180,7 @@ if(isWorker){
                 });
                 parentBlocks.set(block,i*BLOCK_SIZE);
               }
-              postMessage({hash,progress_value:t1+t2*2.5,progress_max});
+              postMessage({hash,progress_value:t1+t2*2.5+t3,progress_max});
               const referenceBlocksPtr=wasm.alloc_blocks();
               const referenceIndicesPtr=wasm.select_reference_indices(indicesPtr,parentBlocksPtr);
               const referenceIndices=new Uint32Array(wasm.memory.buffer,referenceIndicesPtr,STEP_COUNT);
@@ -189,14 +215,21 @@ if(isWorker){
   }else{ // chain worker
     let chainPtr=undefined;
     let port=undefined;
+    let searchPathPtr=undefined;
     onmessage=({data})=>{
       if(typeof data==='object'){
-        const {hash:h,terminate,nonce,n,port:p,index}=data;
+        const {hash:h,terminate,nonce,n,port:p,index,search}=data;
         if(h===hash){
           if(terminate){
             return globalThis.close();
           }
-          if(p&&nonce instanceof Uint8Array){
+          if(search){
+            if(search.path){
+              searchPathPtr=wasm.alloc_search_path();
+              new Uint8Array(wasm.memory.buffer,searchPathPtr,SEARCH_PATH_LENGTH*HASH_LENGTH).set(search.path);
+            }
+            port.postMessage(wasm.search_roots(searchPathPtr,search.start,search.stride,search.count));
+          }else if(p&&nonce instanceof Uint8Array){
             const i=parseInt(n);
             if(nonce.length!==16||isNaN(i)||i<0||i>=CHAIN_COUNT) throw new Error();
             port=p;
@@ -205,9 +238,9 @@ if(isWorker){
             chainPtr=wasm.generate_chain(i,noncePtr);
             wasm.free_nonce(noncePtr, 16);
             const hashChainPtr=wasm.hash_chain(chainPtr);
-            const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,CHAIN_BLOCK_COUNT*HASH_LENGTH).slice();
+            const hashChain=new Uint8Array(wasm.memory.buffer,hashChainPtr,COMPUTED_BLOCK_COUNT*HASH_LENGTH).slice();
             port.postMessage(hashChain,[hashChain.buffer]);
-          }else if(!isNaN(index)&&index>=0&&index<CHAIN_BLOCK_COUNT){
+          }else if(!isNaN(index)&&index>=0&&index<COMPUTED_BLOCK_COUNT){
             const block=new Uint8Array(wasm.memory.buffer,chainPtr+index*BLOCK_SIZE,BLOCK_SIZE).slice();
             port.postMessage(block,[block.buffer]);
           }

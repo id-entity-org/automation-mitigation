@@ -10,16 +10,12 @@ const dist=join(root,'dist');
 const brotli=promisify(brotliCompress);
 const builds=[
   {features:null,out:'lib.wasm'},
-  {features:'high-cpu',out:'lib-high-cpu.wasm'},
   {features:'high-memory',out:'lib-high-mem.wasm'},
-  {features:'high-memory,high-cpu',out:'lib-high.wasm'},
 ];
 const outputs=[
   'lib.mjs',
   'lib-min.mjs',
-  'lib-high-cpu-min.mjs',
   'lib-high-mem-min.mjs',
-  'lib-high-min.mjs',
   ...builds.map(({out})=>out),
 ];
 

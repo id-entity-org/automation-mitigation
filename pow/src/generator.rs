@@ -8,11 +8,18 @@ use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::ptr::copy_nonoverlapping;
 
 pub struct State<const HASH_LENGTH: usize>(MerkleTree<MerkleHasher<HASH_LENGTH>>);
 
 impl<const HASH_LENGTH: usize> State<HASH_LENGTH> {
+    pub fn search_path(&self) -> Vec<[u8; HASH_LENGTH]> {
+        self.0.proof(&[self.0.leaves_len()]).proof_hashes().to_vec()
+    }
+
+    pub fn commit_leaf(&mut self, leaf: [u8; HASH_LENGTH]) {
+        self.0.insert(leaf).commit();
+    }
+
     pub fn root(&self) -> Box<[u8; HASH_LENGTH]> {
         self.0
             .root()
@@ -29,11 +36,10 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 where
-    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>:
+    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>:
         ValidChainCount<CHAIN_COUNT>,
 {
     const TREE_PROOF_BYTE_COUNT: usize = Self::TOTAL_BLOCK_COUNT.ilog2() as usize * HASH_LENGTH;
@@ -46,7 +52,7 @@ where
         nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> [Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]>; CHAIN_COUNT] {
+    ) -> [Box<[Block<BLOCK_SIZE>]>; CHAIN_COUNT] {
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let nonces = Self::split_nonce(nonce);
@@ -58,13 +64,13 @@ where
         nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
-        let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
-        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
-            allocated.as_mut().try_into().unwrap();
+    ) -> Box<[Block<BLOCK_SIZE>]> {
+        let mut allocated =
+            Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>] = allocated.as_mut();
         Self::generate_allocated_chain(i, nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
-        unsafe { allocated.assume_init() }.try_into().unwrap()
+        unsafe { allocated.assume_init() }
     }
 
     fn generate_chain_split_nonce(
@@ -72,19 +78,19 @@ where
         split_nonce: &Nonce,
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
-    ) -> Box<[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]> {
-        let mut allocated = Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(CHAIN_BLOCK_COUNT);
-        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT] =
-            allocated.as_mut().try_into().unwrap();
+    ) -> Box<[Block<BLOCK_SIZE>]> {
+        let mut allocated =
+            Box::<[Block<BLOCK_SIZE>]>::new_uninit_slice(Self::COMPUTED_BLOCK_COUNT);
+        let blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>] = allocated.as_mut();
         Self::generate_allocated_chain_split_nonce(i, split_nonce, blocks, printer, progress);
         // SAFETY: We just initialized all the blocks.
-        unsafe { allocated.assume_init() }.try_into().unwrap()
+        unsafe { allocated.assume_init() }
     }
 
     pub fn generate_allocated_chain(
         i: usize,
         nonce: &Nonce,
-        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
+        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
     ) {
@@ -97,7 +103,7 @@ where
     fn generate_allocated_chain_split_nonce(
         i: usize,
         split_nonce: &Nonce,
-        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>; CHAIN_BLOCK_COUNT],
+        blocks: &mut [MaybeUninit<Block<BLOCK_SIZE>>],
         #[allow(unused_variables)] printer: impl DebugPrinter,
         #[allow(unused_variables)] progress: impl ProgressReporter,
     ) {
@@ -108,9 +114,11 @@ where
         ));
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
-            "chain: split_nonce: {:x}, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}.",
+            "chain: split_nonce: {:x}, hash length: {HASH_LENGTH}.",
             Hex(split_nonce)
         ));
+        assert!(i < CHAIN_COUNT);
+        assert_eq!(blocks.len(), Self::COMPUTED_BLOCK_COUNT);
         let offset = CHAIN_BLOCK_COUNT * i;
         // SAFETY: Fill the first two blocks with zeros.
         unsafe {
@@ -120,7 +128,7 @@ where
         let mut allocated_hash = [0; 64];
         #[cfg(feature = "progress")]
         let mut p0 = 0;
-        for index in 2..CHAIN_BLOCK_COUNT {
+        for index in 2..Self::COMPUTED_BLOCK_COUNT {
             let reference_index = reference_block_index::<CHAIN_BLOCK_COUNT, BLOCK_SIZE>(
                 index + offset,
                 // SAFETY: We know blocks[index - 1] is initialized in a previous iteration.
@@ -136,7 +144,7 @@ where
             );
             #[cfg(feature = "progress")]
             {
-                let p = 255 * index as u64 / (CHAIN_BLOCK_COUNT * CHAIN_COUNT) as u64;
+                let p = 255 * index as u64 / (Self::COMPUTED_BLOCK_COUNT * CHAIN_COUNT) as u64;
                 if p > p0 {
                     progress.increment((p - p0) as u8);
                     p0 = p;
@@ -145,9 +153,7 @@ where
         }
     }
 
-    pub fn hash_chain(
-        chain: &[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT],
-    ) -> Box<[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]> {
+    pub fn hash_chain(chain: &[Block<BLOCK_SIZE>]) -> Box<[[u8; HASH_LENGTH]]> {
         let vec = chain
             .iter()
             .map(|it| {
@@ -155,42 +161,60 @@ where
                 hash
             })
             .collect::<Vec<_>>();
-        let raw = Box::into_raw(vec.into_boxed_slice());
-        // SAFETY: we know the vec is the same size as the input chain.
-        unsafe { Box::from_raw(raw as *mut [[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]) }
+        vec.into_boxed_slice()
     }
 
     pub fn build_state(
-        hash_chains: &[&[[u8; HASH_LENGTH]; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        hash_chains: &[&[[u8; HASH_LENGTH]]; CHAIN_COUNT],
         #[allow(unused_variables)] printer: impl DebugPrinter,
     ) -> Box<State<HASH_LENGTH>> {
-        let mut leaves = Vec::with_capacity(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
-        let mut cursor = leaves.as_mut_ptr();
-        #[allow(unused_variables)]
+        // Leave the final, uncomputed leaf uncommitted. Root retries only need
+        // its sibling path; commit the winning leaf once before making proofs.
+        let mut leaves = vec![[0; HASH_LENGTH]; Self::TOTAL_BLOCK_COUNT - 1];
         for (i, chain) in hash_chains.iter().enumerate() {
-            #[cfg(feature = "debug")]
-            printer.debug_println(&format!(
-                "hash chain {}/{CHAIN_COUNT}: {:x}",
-                i + 1,
-                Hex(&MerkleHasher::<HASH_LENGTH>::hash(unsafe {
-                    std::slice::from_raw_parts(
-                        chain.as_ptr() as *const u8,
-                        CHAIN_BLOCK_COUNT * HASH_LENGTH,
-                    )
-                }))
-            ));
-            // SAFETY: direct memory copy and adjust size, we already reserved the correct capacity.
-            unsafe {
-                copy_nonoverlapping(chain.as_ptr(), cursor, CHAIN_BLOCK_COUNT);
-                cursor = cursor.add(CHAIN_BLOCK_COUNT);
-            }
-        }
-        // SAFETY: we've reserved the correct capacity and added the elements manually.
-        unsafe {
-            leaves.set_len(CHAIN_COUNT * CHAIN_BLOCK_COUNT);
+            assert_eq!(chain.len(), Self::COMPUTED_BLOCK_COUNT);
+            let offset = i * CHAIN_BLOCK_COUNT;
+            leaves[offset..offset + chain.len()].copy_from_slice(chain);
         }
         Box::new(State(MerkleTree::from_leaves(&leaves)))
     }
+
+    /// Search a bounded batch. Disjoint starts and a common stride let workers
+    /// share the search without sharing memory or repeating candidates.
+    pub fn search_roots(
+        path: &[[u8; HASH_LENGTH]],
+        start: u64,
+        stride: u64,
+        count: u32,
+    ) -> Option<u64> {
+        assert_eq!(path.len(), Self::SEARCH_PATH_LENGTH);
+        assert!(stride > 0);
+        for attempt in 0..count {
+            let trial = start.checked_add(u64::from(attempt).checked_mul(stride)?)?;
+            let mut root = Self::trial_leaf(trial);
+            let mut index = Self::TOTAL_BLOCK_COUNT - 1;
+            for sibling in path {
+                // An unpaired rightmost node is promoted unchanged.
+                while index % 2 == 0 {
+                    index /= 2;
+                }
+                root = MerkleHasher::custom_domain_hash_with_prefix(b"hash", sibling, &root);
+                index /= 2;
+            }
+            if (0..STEP_COUNT).all(|i| {
+                challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(&root, i) % CHAIN_BLOCK_COUNT
+                    < Self::COMPUTED_BLOCK_COUNT
+            }) {
+                return Some(trial);
+            }
+        }
+        None
+    }
+
+    pub fn trial_leaf(trial: u64) -> [u8; HASH_LENGTH] {
+        MerkleHasher::custom_domain_hash(b"trial", &trial.to_le_bytes())
+    }
+
     pub fn select_indices(root: &[u8; HASH_LENGTH]) -> Box<[usize; STEP_COUNT]> {
         Box::new(from_fn(|i| {
             challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(root, i)
@@ -228,7 +252,7 @@ where
         ));
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
-            "proof: {STEP_COUNT} steps, hash length: {HASH_LENGTH}, iteration count: {ITERATION_COUNT}."
+            "proof: {STEP_COUNT} steps, hash length: {HASH_LENGTH}."
         ));
         let tree = state.0;
         #[cfg(feature = "debug")]
@@ -286,11 +310,20 @@ where
     }
 
     pub fn combine_chains(
-        chains: &[&[Block<BLOCK_SIZE>; CHAIN_BLOCK_COUNT]; CHAIN_COUNT],
+        chains: &[&[Block<BLOCK_SIZE>]; CHAIN_COUNT],
         printer: impl DebugPrinter,
     ) -> Box<[u8]> {
         let hash_chains: [_; CHAIN_COUNT] = from_fn(|i| Self::hash_chain(chains[i]));
-        let state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()), printer);
+        let mut state = Self::build_state(&from_fn(|i| hash_chains[i].as_ref()), printer);
+        let path = state.search_path();
+        let mut start = 0;
+        let trial = loop {
+            if let Some(trial) = Self::search_roots(&path, start, 1, 1024) {
+                break trial;
+            }
+            start = start.checked_add(1024).expect("root search exhausted");
+        };
+        state.commit_leaf(Self::trial_leaf(trial));
         let root = state.root();
         let indices = Self::select_indices(&root);
         let parent_blocks = Box::new(from_fn(|i| {
@@ -327,9 +360,7 @@ where
             unsafe { blocks[reference_index].assume_init_ref() },
             hash,
         );
-        for i in 0..ITERATION_COUNT {
-            MerkleHasher::custom_domain_hash_self((i as u16).to_be_bytes().as_slice(), hash);
-        }
+        MerkleHasher::custom_domain_hash_self(&0u16.to_be_bytes(), hash);
         // SAFETY: The hasher will fill the block without reading the bytes.
         let block = unsafe {
             core::slice::from_raw_parts_mut(blocks[index].as_mut_ptr() as *mut u8, BLOCK_SIZE)
@@ -337,5 +368,80 @@ where
         MerkleHasher::<BLOCK_SIZE>::custom_domain_hash_with_prefix_into_slice(
             b"final", nonce, hash, block,
         );
+    }
+}
+
+#[cfg(all(test, feature = "verify"))]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    struct Quiet;
+    impl DebugPrinter for Quiet {
+        fn debug_println(&self, _: &str) {}
+    }
+    impl ProgressReporter for Quiet {
+        fn increment(&self, _: u8) {}
+    }
+
+    fn check_prefix<const BLOCKS: usize>() {
+        type Proof<const B: usize> = Challenge<3, 3, B, 32, 16>;
+        let nonce = [42; 16];
+        let chains = Proof::<BLOCKS>::generate_chains(&nonce, Quiet, Quiet);
+        assert!(
+            chains
+                .iter()
+                .all(|chain| chain.len() == Proof::<BLOCKS>::COMPUTED_BLOCK_COUNT)
+        );
+        let hashes = chains
+            .each_ref()
+            .map(|chain| Proof::<BLOCKS>::hash_chain(chain));
+        let mut state =
+            Proof::<BLOCKS>::build_state(&hashes.each_ref().map(|hashes| &**hashes), Quiet);
+        let path = state.search_path();
+        assert_eq!(path.len(), Proof::<BLOCKS>::SEARCH_PATH_LENGTH);
+        assert_eq!(Proof::<BLOCKS>::search_roots(&path, 0, 1, 0), None);
+        let trial = Proof::<BLOCKS>::search_roots(&path, 0, 1, 100_000).unwrap();
+        // Even/odd workers must find the same first successful candidate.
+        let parallel = (0..2)
+            .filter_map(|i| Proof::<BLOCKS>::search_roots(&path, i, 2, 50_000))
+            .min();
+        assert_eq!(parallel, Some(trial));
+        state.commit_leaf(Proof::<BLOCKS>::trial_leaf(trial));
+        let root = state.root();
+        assert!(
+            Proof::<BLOCKS>::select_indices(&root)
+                .iter()
+                .all(|i| i % BLOCKS < Proof::<BLOCKS>::COMPUTED_BLOCK_COUNT)
+        );
+        // Independently build the complete commitment, including the trial leaf.
+        let mut leaves = vec![[0; 16]; 3 * BLOCKS];
+        for (i, hashes) in hashes.iter().enumerate() {
+            leaves[i * BLOCKS..i * BLOCKS + hashes.len()].copy_from_slice(hashes);
+        }
+        *leaves.last_mut().unwrap() = Proof::<BLOCKS>::trial_leaf(trial);
+        assert_eq!(
+            *root,
+            MerkleTree::<MerkleHasher<16>>::from_leaves(&leaves)
+                .root()
+                .unwrap()
+        );
+        let proof =
+            Proof::<BLOCKS>::combine_chains(&chains.each_ref().map(|chain| &**chain), Quiet);
+        assert!(Proof::<BLOCKS>::verify_proof(&nonce, &proof).is_some());
+        assert!(Proof::<BLOCKS>::verify_proof(&[43; 16], &proof).is_none());
+        let mut tampered = proof.to_vec();
+        tampered[0] ^= 1;
+        assert!(Proof::<BLOCKS>::verify_proof(&nonce, &tampered).is_none());
+    }
+
+    #[test]
+    fn prefix_search_and_commit_support_unbalanced_trees() {
+        check_prefix::<4>();
+        check_prefix::<5>();
+        check_prefix::<15>();
+        check_prefix::<16>();
+        check_prefix::<17>();
+        check_prefix::<64>();
     }
 }

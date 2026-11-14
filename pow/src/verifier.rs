@@ -8,11 +8,10 @@ impl<
     const STEP_COUNT: usize,
     const CHAIN_BLOCK_COUNT: usize,
     const BLOCK_SIZE: usize,
-    const ITERATION_COUNT: usize,
     const HASH_LENGTH: usize,
-> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
+> Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>
 where
-    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>:
+    Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, HASH_LENGTH>:
         ValidChainCount<CHAIN_COUNT>,
 {
     pub fn verify_proof(nonce: &Nonce, proof: &[u8]) -> Option<()> {
@@ -88,9 +87,7 @@ where
             reference_block,
             &mut hash,
         );
-        for i in 0..ITERATION_COUNT {
-            MerkleHasher::custom_domain_hash_self((i as u16).to_be_bytes().as_slice(), &mut hash);
-        }
+        MerkleHasher::custom_domain_hash_self(&0u16.to_be_bytes(), &mut hash);
         MerkleHasher::custom_domain_hash_with_prefix(b"final", nonce, &hash)
     }
 }
