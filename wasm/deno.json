@@ -9,9 +9,9 @@
       "read": true,
       "write": [
         "lib-min.mjs",
-        "lib-high-cpu.mjs",
-        "lib-high-mem.mjs",
-        "lib-high.mjs"
+        "lib-high-cpu-min.mjs",
+        "lib-high-mem-min.mjs",
+        "lib-high-min.mjs"
       ],
       "run": true,
       "env": true

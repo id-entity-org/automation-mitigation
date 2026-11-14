@@ -45,9 +45,22 @@ impl<
 > Challenge<CHAIN_COUNT, STEP_COUNT, CHAIN_BLOCK_COUNT, BLOCK_SIZE, ITERATION_COUNT, HASH_LENGTH>
 {
     const TOTAL_BLOCK_COUNT: usize = CHAIN_BLOCK_COUNT * CHAIN_COUNT;
-    const _ENFORCE_CHAIN_BLOCK_COUNT_AT_LEAST_2: () = const {
-        assert!(CHAIN_BLOCK_COUNT >= 2);
-    };
+    fn validate_parameters() {
+        const {
+            assert!(CHAIN_BLOCK_COUNT >= 3);
+            assert!(STEP_COUNT > 0);
+            assert!(BLOCK_SIZE >= 16);
+            assert!(HASH_LENGTH > 0);
+            assert!(CHAIN_BLOCK_COUNT <= u32::MAX as usize / CHAIN_COUNT);
+        }
+    }
+
+    /// Conservative bound for three Merkle paths per sampled block.
+    pub const MAX_MERKLE_PROOF_BYTES: usize =
+        3 * (usize::BITS - (Self::TOTAL_BLOCK_COUNT - 1).leading_zeros()) as usize * HASH_LENGTH;
+    /// Apply this bound to the HTTP body before buffering an untrusted proof.
+    pub const MAX_PROOF_BYTES: usize = HASH_LENGTH
+        + STEP_COUNT * (12 + HASH_LENGTH + 2 * BLOCK_SIZE + Self::MAX_MERKLE_PROOF_BYTES);
     pub const fn chain_count() -> usize {
         CHAIN_COUNT
     }
@@ -215,7 +228,6 @@ mod verify {
 }
 
 use crate::hasher::MerkleHasher;
-#[cfg(any(test, feature = "debug"))]
 #[cfg(feature = "verify")]
 pub use verify::*;
 
@@ -264,7 +276,7 @@ pub(crate) fn reference_block_index<const CHAIN_BLOCK_COUNT: usize, const BLOCK_
     ((r * j) >> 64) as usize + offset
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "generate", feature = "verify"))]
 mod tests {
     use super::*;
     use crate::hex::Hex;

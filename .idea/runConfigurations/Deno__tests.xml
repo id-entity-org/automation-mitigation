@@ -1,0 +1,5 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Deno: tests" type="DenoConfigurationType" inputPath="$PROJECT_DIR$/wasm" programParameters="task test" workingDirectory="$PROJECT_DIR$/wasm">
+    <method v="2" />
+  </configuration>
+</component>

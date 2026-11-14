@@ -1,9 +1,14 @@
 use pow::{
-    Block, DebugPrinter, ProgressReporter, State, DEFAULT_BLOCK_SIZE,
-    DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH, DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT,
+    Block, DEFAULT_BLOCK_SIZE, DEFAULT_CHAIN_BLOCK_COUNT, DEFAULT_CHAIN_COUNT, DEFAULT_HASH_LENGTH,
+    DEFAULT_ITERATION_COUNT, DEFAULT_STEP_COUNT, DebugPrinter, ProgressReporter, State,
 };
 use std::array::from_fn;
 use std::slice::from_raw_parts;
+
+// This JavaScript ABI uses 32-bit pointers and indices. The Rust proof crate
+// itself remains portable; memory64 needs a separate BigInt-aware JS adapter.
+#[cfg(all(target_family = "wasm", not(target_arch = "wasm32")))]
+compile_error!("the JavaScript adapter requires wasm32");
 
 #[link(wasm_import_module = "js")]
 unsafe extern "C" {
@@ -214,8 +219,13 @@ pub unsafe extern "C" fn free_nonce(ptr: *mut u8) {
 /// Hash chain size is known from const variables.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn alloc_hash_chain() -> *mut u8 {
+    // Allocate directly on the heap; a multi-megabyte temporary can overflow
+    // the WASM stack in builds where Box::new is not optimized in place.
     let hash_chain: Box<[[u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]> =
-        Box::new([[0u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]);
+        vec![[0u8; DEFAULT_HASH_LENGTH]; DEFAULT_CHAIN_BLOCK_COUNT]
+            .into_boxed_slice()
+            .try_into()
+            .unwrap();
     Box::into_raw(hash_chain) as *mut u8
 }
 

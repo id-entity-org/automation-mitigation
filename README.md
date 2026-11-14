@@ -27,6 +27,8 @@ This project implements a Proof of Work optimized for bot mitigation.
 The CPU and memory requirements are tuned to ensure the cost is transparent to a legitimate user, but as demanding as possible
 for the resource-constrained hardware typically used for mass automation.
 
+See [the security review](./SECURITY_REVIEW.md) for demonstrated shortcuts and implementation fixes.
+
 ## Usage
 
 The solution consists of two parts:
@@ -47,7 +49,7 @@ it is good practice to start the first two steps proactively in the background a
 - On the interaction with the form.
 
 Depending on the implementation of the server-side component, the nonce might be only valid for a limited time 
-(15 minutes for the example implementation).
+(nominally between 15 and 30 minutes for the default rolling-window implementation, plus any background rotation delay).
 <br>
 In that case, the client should restart the process when the expiration is imminent or has already passed.
 
@@ -60,8 +62,10 @@ The implementation is split in multiple steps to allow parallel computation usin
 
 You can generate the wasm file by compiling the [wasm](./wasm) crate.
 
-By default, the computation of the proof uses **2 CPU** cores and **256 MB** of RAM, 
-and completes in about 10 seconds on a mid-range phone.
+The default parameters use **2 chains** with **128 MiB of block data** in total;
+`high-memory` doubles that to **256 MiB**. Merkle trees, worker copies, and allocator overhead
+increase peak RAM. The checked-in `lib.mjs` loads `lib-high.wasm`, which enables both high-memory
+and high-cpu; the generated `lib-min.mjs` loads the base variant. Measure latency on your target devices.
 However, both the cpu time and memory required can be adjusted.
 
 **Reducing complexity** is generally only necessary for secondary forms where the computation is only started
@@ -100,22 +104,30 @@ pub fn verify_proof(nonce: &[u8; 16], proof: &[u8]) -> Option<()>
 If your server is not implemented in [Rust](https://rust-lang.org/),
 the function can be compiled to WebAssembly and executed via a WASM runtime (see the [java](./examples/java) and [javascript](./examples/javascript) examples).
 
-The nonce must be unpredictable and unique. The unpredictability ensures that the proof cannot be pre-computed or any
-shortcut in the computation can be exploited. The uniqueness prevents replay of valid proofs already submitted.<br>
+The nonce must be unpredictable and unique. Unpredictability prevents useful advance computation for a particular
+nonce; it does not eliminate shortcuts in the proof algorithm. Atomic single-use consumption prevents replay.<br>
 16 bytes provide enough entropy for the seed of the proof of work algorithm.
 
-To prevent replay, the server must keep track of the nonces that were already issued, and verify that the nonce is valid
-as well as the proof.
-<br>
-It is recommended to still verify the proof even if the nonce is invalid.
-Otherwise, an attacker could use the duration of the response to check if a nonce is valid or not.
+Authenticate the nonce and reject tokens outside the stored generation pair or already consumed before expensive proof verification.
+With `RollingWindow`, call `check`, verify the proof, then call `verify` to atomically consume the nonce.
+Accept the submission only if all three succeed. A successful `check` alone does not reserve a nonce.
+Limit request sizes before buffering (`DefaultGenerator::MAX_PROOF_BYTES` bounds the raw proof),
+and limit issuance and concurrent verification. Never trust difficulty parameters supplied by the client.
 
 Keeping track of the nonces can be done in several ways, but doing it as cheaply as possible can be tricky.<br>
 The [nonce](./nonce) crate provides an implementation that allows a large (over half a million)
-but finite number of seeds in a rolling time window of 15 minutes. 
+but finite number of seeds per 15-minute generation.
 It uses two small (64 kb) local and unsynchronized bit-vectors to track the consumed seeds.
-This design is extremely efficient but allows a challenge to potentially be replayed in the same time window
-as many times as there are backend servers. This trade-off should be acceptable for the vast majority of applications.
+It accepts either stored generation, giving issued nonces a nominal lifetime between 15 and 30 minutes.
+Only the background thread advances the pair; requests tolerate delayed rotation without consulting the clock.
+This design allows a challenge to be replayed on each backend with independent consumption state.
+Restarting with the same seed also resets consumption and issuance state. These are deployment trade-offs:
+use shared consumption storage or issuer routing if they are unacceptable, and persist consumption state
+or rotate the secret seed on restart. Use a securely generated secret seed and scope it to the protected
+action and difficulty profile so cheaper proofs cannot be spent on more valuable actions.
+
+Nonce generations now use `u32`; upgrading changes nonce derivation. Expire old tokens and deploy
+the nonce producer/verifier together. The proof byte format and existing valid proof vectors are unchanged.
 
 
 ## Examples

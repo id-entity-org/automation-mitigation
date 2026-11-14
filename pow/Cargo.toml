@@ -26,3 +26,7 @@ debug = []
 progress = []
 high-memory = []
 high-cpu = []
+
+[[example]]
+name = "partial_chain"
+required-features = ["generate", "verify"]

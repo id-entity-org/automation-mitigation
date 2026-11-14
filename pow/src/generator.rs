@@ -2,7 +2,7 @@ use crate::chains::ValidChainCount;
 use crate::hasher::MerkleHasher;
 #[cfg(feature = "debug")]
 use crate::hex::Hex;
-use crate::{challenge_index, reference_block_index, Block, Nonce, ProgressReporter};
+use crate::{Block, Nonce, ProgressReporter, challenge_index, reference_block_index};
 use crate::{Challenge, DebugPrinter};
 use rs_merkle::{Hasher, MerkleTree};
 use std::array::from_fn;
@@ -88,6 +88,8 @@ where
         printer: impl DebugPrinter,
         progress: impl ProgressReporter,
     ) {
+        Self::validate_parameters();
+        assert!(i < CHAIN_COUNT);
         #[cfg(feature = "debug")]
         printer.debug_println(&format!("nonce: {:x}", Hex(nonce)));
         let split_nonce = Self::split_nonce(nonce)[i];
@@ -101,6 +103,8 @@ where
         #[allow(unused_variables)] printer: impl DebugPrinter,
         #[allow(unused_variables)] progress: impl ProgressReporter,
     ) {
+        Self::validate_parameters();
+        assert!(i < CHAIN_COUNT);
         #[cfg(feature = "debug")]
         printer.debug_println(&format!(
             "generate chain {}/{CHAIN_COUNT} chains of {CHAIN_BLOCK_COUNT} blocks of {BLOCK_SIZE} bytes.",
@@ -112,10 +116,11 @@ where
             Hex(split_nonce)
         ));
         let offset = CHAIN_BLOCK_COUNT * i;
-        // SAFETY: Fill the first two blocks with zeros (they are just Box<[u8]>)
+        // SAFETY: Each pointer addresses one allocated [u8; BLOCK_SIZE].
+        // The count is in blocks, not bytes; zero initializes all its bytes.
         unsafe {
-            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
-            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, BLOCK_SIZE);
+            ptr::write_bytes(blocks[0].as_mut_ptr(), 0u8, 1);
+            ptr::write_bytes(blocks[1].as_mut_ptr(), 0u8, 1);
         }
         let mut allocated_hash = [0; 64];
         #[cfg(feature = "progress")]
@@ -192,6 +197,7 @@ where
         Box::new(State(MerkleTree::from_leaves(&leaves)))
     }
     pub fn select_indices(root: &[u8; HASH_LENGTH]) -> Box<[usize; STEP_COUNT]> {
+        Self::validate_parameters();
         Box::new(from_fn(|i| {
             challenge_index::<CHAIN_BLOCK_COUNT, CHAIN_COUNT>(root, i)
         }))
@@ -330,9 +336,12 @@ where
         for i in 0..ITERATION_COUNT {
             MerkleHasher::custom_domain_hash_self((i as u16).to_be_bytes().as_slice(), hash);
         }
-        // SAFETY: The hasher will fill the block without reading the bytes.
+        // SAFETY: Initialize the destination in place before borrowing it as
+        // bytes. This avoids both uninitialized references and a block-sized
+        // array temporary on the stack.
         let block = unsafe {
-            core::slice::from_raw_parts_mut(blocks[index].as_mut_ptr() as *mut u8, BLOCK_SIZE)
+            ptr::write_bytes(blocks[index].as_mut_ptr(), 0u8, 1);
+            blocks[index].assume_init_mut()
         };
         MerkleHasher::<BLOCK_SIZE>::custom_domain_hash_with_prefix_into_slice(
             b"final", nonce, hash, block,
