@@ -67,7 +67,7 @@ impl<const MAX: usize> NonceProducer<MAX> {
         // it's unlikely to overflow and wrap around,
         // but fetch_update makes sure that doesn't happen.
         self.cursor
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |it| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |it| {
                 if it == MAX { None } else { Some(it + 1) }
             })
             .ok()
